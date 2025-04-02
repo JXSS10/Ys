@@ -10,3 +10,4 @@ speedtest-cli
 motor
 pymongo
 #pyrogram
+yt-dlp
