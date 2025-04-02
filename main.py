@@ -11,7 +11,7 @@ API_ID = os.environ.get("API_ID", )
 API_HASH = os.environ.get("API_HASH","")
 BOT_TOKEN = os.environ.get("BOT_TOKEN","")
 
---- بيانات البوت ---
+# بيانات البوت #
 
 bot = Client(
 "URL UPLOADER BOT",
@@ -20,17 +20,17 @@ api_hash=API_HASH, # هام: استبدل بـ API HASH الخاص بك
 bot_token=BOT_TOKEN # هام: استبدل بـ BOT TOKEN الخاص بك
 )
 
---- مجلد التحميل ---
+# مجلد التحميل #
 
 DOWNLOAD_FOLDER = "./"
 if not os.path.exists(DOWNLOAD_FOLDER):
 os.makedirs(DOWNLOAD_FOLDER)
 
---- قاموس لتخزين بيانات التنزيل المؤقتة ---
+# قاموس لتخزين بيانات التنزيل المؤقتة #
 
 download_sessions = {}
 
---- ملف الكوكيز ---
+# ملف الكوكيز #
 
 YTUB_COOKIES = """
 Netscape HTTP Cookie File
@@ -107,7 +107,7 @@ This is a generated file!  Do not edit.
 
 #COOKIES_FILE = "cookies.txt"  # اسم ملف الكوكيز المؤقت - لم نعد نستخدم الملف
 
---- دالة لحفظ الكوكيز في ملف مؤقت ---
+# دالة لحفظ الكوكيز في ملف مؤقت #
 
 #def save_cookies_to_file(): # لم نعد نستخدم هذه الدالة
 
@@ -118,7 +118,7 @@ print("DEBUG: Cookies saved to file.")
 print("DEBUG: Cookies file content:\n", YTUB_COOKIES) # Print content for verification
 except Exception as e:
 print(f"DEBUG: Error saving cookies to file: {e}")
---- دالة تنزيل الفيديو/قائمة التشغيل (معدلة لدعم نوع الميديا والكوكيز) ---
+# دالة تنزيل الفيديو/قائمة التشغيل (معدلة لدعم نوع الميديا والكوكيز) #
 
 def download_youtube_content(url, message, format_id, user_id, media_type):
 print(f"DEBUG: DOWNLOAD_FOLDER is: {DOWNLOAD_FOLDER}")
@@ -167,7 +167,7 @@ except Exception as e:
 print(f"DEBUG: Download Error: {e}")
 return None, str(e)
 
---- دالة عرض التقدم (كما هي) ---
+# دالة عرض التقدم (كما هي) #
 
 async def progress_hook(d, message, user_id, process_type):
 
@@ -207,7 +207,7 @@ if session_data and session_data['status_message_id'] == message.id:
 
 
 
---- دالة إنشاء شريط التقدم المرئي (كما هي) ---
+# دالة إنشاء شريط التقدم المرئي (كما هي) #
 
 def progress_bar_generator(percentage, bar_length=20):
 completed_blocks = int(round(bar_length * percentage))
@@ -215,7 +215,7 @@ remaining_blocks = bar_length - completed_blocks
 progress_bar = '█' * completed_blocks + '░' * remaining_blocks
 return progress_bar
 
---- معالج أوامر البدء (كما هو) ---
+# معالج أوامر البدء (كما هو) #
 
 @bot.on_message(filters.command(["start", "help"]))
 async def start_command(client, message):
@@ -237,7 +237,7 @@ await message.reply_text(
 "- إذا واجهت أي مشاكل، يمكنك التواصل مع مطور البوت."
 )
 
---- دالة لجلب صيغ الفيديو المتاحة (معدلة لدعم نوع الميديا وعرض MP4) ---
+# دالة لجلب صيغ الفيديو المتاحة (معدلة لدعم نوع الميديا وعرض MP4) #
 
 def get_video_formats(url, media_type):
 ydl_opts = {
@@ -302,7 +302,7 @@ except Exception as e:
 print(f"DEBUG: Error in get_video_formats: {e}")
 return None
 
---- معالج الرسائل النصية (روابط يوتيوب) - معدل لاختيار نوع الميديا أولاً ---
+# معالج الرسائل النصية (روابط يوتيوب) - معدل لاختيار نوع الميديا أولاً #
 
 @bot.on_message(filters.text)
 async def handle_youtube_url(client, message):
@@ -342,7 +342,7 @@ except Exception as e:
 else:
 await message.reply_text("هذا ليس رابط يوتيوب صالحًا. يرجى إرسال رابط يوتيوب صحيح.")
 
---- معالج استعلامات ردود الفعل (معدل لدعم نوع الميديا واختيار الصيغة) ---
+# معالج استعلامات ردود الفعل (معدل لدعم نوع الميديا واختيار الصيغة) #
 
 @bot.on_callback_query()
 async def format_callback(client, callback_query: CallbackQuery):
@@ -469,7 +469,7 @@ return await callback_query.answer()  # منع تكرار الإجابة
 
 await callback_query.answer()  # إجابة افتراضية لأي استعلامات رد فعل أخرى
 
---- دالة عرض تقدم الرفع (كما هي) ---
+# دالة عرض تقدم الرفع (كما هي) #
 
 async def upload_progress_callback(current, total, status_message, user_id, video_file, total_files):
 
@@ -498,7 +498,7 @@ pass
 except Exception as e:
 print(f"خطأ في تحديث رسالة رفع التقدم: {e}")
 
---- تشغيل البوت ---
+# تشغيل البوت #
 
 if name == "main":
 print("البوت يعمل...")
