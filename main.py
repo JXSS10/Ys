@@ -9,6 +9,7 @@ import logging
 import http.cookiejar
 from io import StringIO
 from datetime import datetime
+from typing import Optional, List # Import Optional and List
 from pyrogram import Client, filters
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
@@ -350,7 +351,7 @@ def download_progress_hook_wrapper(d: dict):
         LOGGER.warning("Session data or status message missing in progress hook wrapper.")
 
 
-def do_youtube_download(url: str, format_selector: str, media_type: str, session_data: dict, status_message: Message) -> (list[str] | None, str | None):
+def do_youtube_download(url: str, format_selector: str, media_type: str, session_data: dict, status_message: Message) -> (Optional[List[str]], Optional[str]): # Modified return type
     """
     Performs the download using yt-dlp in a blocking manner.
     Returns (list_of_file_paths, None) on success, or (None, error_message) on failure.
@@ -517,7 +518,7 @@ def create_media_type_selection(info_dict: dict) -> (str, InlineKeyboardMarkup):
     markup = InlineKeyboardMarkup(buttons)
     return caption, markup
 
-def create_format_selection(info_dict: dict, media_type: str) -> (str | None, InlineKeyboardMarkup | None):
+def create_format_selection(info_dict: dict, media_type: str) -> (Optional[str], Optional[InlineKeyboardMarkup]): # Modified return type hints
     """Creates text and buttons for selecting download format/quality."""
     formats = info_dict.get('formats', [])
     if not formats:
@@ -597,7 +598,7 @@ def create_format_selection(info_dict: dict, media_type: str) -> (str | None, In
     markup = InlineKeyboardMarkup(buttons)
     return text, markup
 
-def get_format_selector(callback_data: str) -> (str | None, str | None):
+def get_format_selector(callback_data: str) -> (Optional[str], Optional[str]): # Modified return type hints
     """Determines the yt-dlp format selector string based on callback data."""
     parts = callback_data.split('_', 2)
     if len(parts) < 3: return None, None # Invalid format
@@ -646,7 +647,7 @@ async def upload_progress_hook(current, total, client, status_message, session_d
     except Exception as e:
         LOGGER.error(f"Error in upload progress hook for user {user_id}: {e}", exc_info=True)
 
-async def extract_metadata_and_thumb(file_path: str, media_type: str, fallback_info: dict) -> (dict, str | None):
+async def extract_metadata_and_thumb(file_path: str, media_type: str, fallback_info: dict) -> (dict, Optional[str]): # Modified return type hints
     """Extracts metadata (duration, w, h) and thumbnail using ffmpeg."""
     metadata = {'duration': 0, 'width': 0, 'height': 0}
     thumb_path = None
