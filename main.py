@@ -1,1670 +1,984 @@
-# قم بأضافة الكوكيز للتحميل
 import os
 import re
 import yt_dlp
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from pyrogram.errors import MessageNotModified, MessageIdInvalid, FloodWait
-import http.cookiejar
-from io import StringIO
-from pyrogram.enums import ChatAction
+import ffmpeg # For metadata and thumbnails
 import asyncio
 import math
-# Removed glob as it's less reliable than yt-dlp's output finding
-import time # Import time for throttling and unique filenames
-# Import ffmpeg, but make its usage optional
-try:
-    import ffmpeg
-    FFMPEG_AVAILABLE = True
-except ImportError:
-    FFMPEG_AVAILABLE = False
-    print("WARN: ffmpeg-python not found. Metadata extraction and thumbnail generation will be limited.")
-
-# --- بيانات البوت ---
-# Ensure you have these environment variables set
-API_ID = os.environ.get("API_ID",)
-API_HASH = os.environ.get("API_HASH","")
-BOT_TOKEN = os.environ.get("BOT_TOKEN","")
-
-# --- Check if essential variables are set ---
-if not all([API_ID, API_HASH, BOT_TOKEN]):
-    raise ValueError("خطأ: متغيرات البيئة API_ID, API_HASH, و BOT_TOKEN يجب تعيينها.")
-
-# --- ملف الكوكيز ---
-# Use the variable directly from the environment or the provided default
-YTUB_COOKIES_CONTENT = os.environ.get("YTUB_COOKIES", """
-Netscape HTTP Cookie File
-# This is a generated file!  Do not edit.
-
-.youtube.com	TRUE	/	TRUE	1758115994	VISITOR_INFO1_LIVE	MHCsPCRDwfQ
-.youtube.com	TRUE	/	TRUE	1758115994	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgMg%3D%3D
-.youtube.com	TRUE	/	TRUE	1756380934	VISITOR_INFO1_LIVE	0gttXPJu8Rw
-.youtube.com	TRUE	/	TRUE	1756380934	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgZA%3D%3D
-.youtube.com	TRUE	/	TRUE	1756472193	VISITOR_INFO1_LIVE	iHXGKxm-y3Y
-.youtube.com	TRUE	/	TRUE	1756472193	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgMg%3D%3D
-.youtube.com	TRUE	/	TRUE	1756472193	__Secure-ROLLOUT_TOKEN	CND5pPOe0-X6bxDZwqmY5eiLAxjC6aeNueuLAw%3D%3D
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-ROLLOUT_TOKEN	CJ-g9eG-qPCzaRCXsuqR5eiLAxi1yNKaueuLAw%3D%3D
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-3PSIDCC	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c3i82yK7
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-3PSID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6clU6P6L
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-3PAPISID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c0jX77-
-.youtube.com	TRUE	/	TRUE	1756472221	__Secure-SSO-SID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c6y885D
-.youtube.com	TRUE	/	TRUE	1756472221	SID	A7i_DTjG5o8h1HS2Xm1XP9Yc9v9t697GS4k1NfTf98Ob80wJp0_fYSgQyY-b-oU-lJ_0g.
-.youtube.com	TRUE	/	TRUE	1756472221	APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1756472221	HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1756472221	SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1756380954	dextp	60-1-1740828946212|477-1-1740828946805|1123-1-1740828947921|903-1-1740828948816|1957-1-1740828949766|22052-1-1740828951921|30064-1-1740828952741|161033-1-1740828954931
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-YEC	CgYKCQgBEgZ5bRIiEglsS1JKS2tXZ1lZEgZ5bRIiEqoHEglsS1JKS2tXZ1laSAIyAhpHEglzS1JKS2tXZ1lZEglzS1JKS2tXZ1la
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-3PSIDCC	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c3i82yK7
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-3PSID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6clU6P6L
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-3PAPISID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c0jX77-
-.youtube.com	TRUE	/	TRUE	1756380954	__Secure-SSO-SID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c6y885D
-.youtube.com	TRUE	/	TRUE	1756380954	SID	A7i_DTjG5o8h1HS2Xm1XP9Yc9v9t697GS4k1NfTf98Ob80wJp0_fYSgQyY-b-oU-lJ_0g.
-.youtube.com	TRUE	/	TRUE	1756380954	APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1756380954	HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1756380954	SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1756724139	__Secure-ROLLOUT_TOKEN	CJyju6_v2JXvbxDc0MvW4_KLAxjc0MvW4_KLAw%3D%3D
-.youtube.com	TRUE	/	TRUE	1756724139	VISITOR_INFO1_LIVE	Wm7m-MTtdT8
-.youtube.com	TRUE	/	TRUE	1756724139	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgWw%3D%3D
-.youtube.com	TRUE	/	TRUE	1758115994	__Secure-ROLLOUT_TOKEN	CJj_tYXP9LfSIRDvx-vOsOiLAxjNy67fpJuMAw%3D%3D
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-ROLLOUT_TOKEN	CKiPqsqbptWn6QEQnqCNsLy3jAMYt_zBw7y3jAM%3D
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-YEC	CgYKCQgBEgZ5bRIiEglzS1JKS2tXZ1laEgZ5bRIiEqoHEglzS1JKS2tXZ1laSAIyAhpHEglzS1JKS2tXZ1lZEglzS1JKS2tXZ1la
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-3PSIDCC	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c3i82yK7
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-3PSID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6clU6P6L
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-3PAPISID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c0jX77-
-.youtube.com	TRUE	/	TRUE	1759084452	__Secure-SSO-SID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c6y885D
-.youtube.com	TRUE	/	TRUE	1759084452	SID	A7i_DTjG5o8h1HS2Xm1XP9Yc9v9t697GS4k1NfTf98Ob80wJp0_fYSgQyY-b-oU-lJ_0g.
-.youtube.com	TRUE	/	TRUE	1759084452	APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1759084452	HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1759084452	SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1759094418	VISITOR_INFO1_LIVE	MyOIeUxTDOo
-.youtube.com	TRUE	/	TRUE	1759094418	VISITOR_PRIVACY_METADATA	CgJFRxIEGgAgTg%3D%3D
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-YEC	CgYKCQgBEgZ5bRIiEglzS1JKS2tXZ1laEgZ5bRIiEqoHEglzS1JKS2tXZ1laSAIyAhpHEglzS1JKS2tXZ1lZEglzS1JKS2tXZ1la
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-3PSIDCC	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c3i82yK7
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-3PSID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6clU6P6L
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-3PAPISID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c0jX77-
-.youtube.com	TRUE	/	TRUE	1759094418	__Secure-SSO-SID	ACAQQw8yAAHJi6D5kw6_tg9y_9sV-o39r82w1b4_61lYJ9z8i7k5eJcvlY6c6y885D
-.youtube.com	TRUE	/	TRUE	1759094418	SID	A7i_DTjG5o8h1HS2Xm1XP9Yc9v9t697GS4k1NfTf98Ob80wJp0_fYSgQyY-b-oU-lJ_0g.
-.youtube.com	TRUE	/	TRUE	1759094418	APISID	AL-QmvO3Wwc4iVpE/Ahc7msFwQj0
-.youtube.com	TRUE	/	TRUE	1759094418	HSID	A7i_DTjG5o8h1HS2X
-.youtube.com	TRUE	/	TRUE	1759094418	SSID	A0Sg1_Zpvt1_fM6g0
-.youtube.com	TRUE	/	TRUE	1759353620	NID	522=wzsa4BonkkvN7Z0TBfJjXPUXPm4mf6u2uljrV1FsqBrwjB55RhtQdldQM6pu1uj0uZJtQKfBsktY-EKVAIY2GbNxujDTrHzJkyniP3SV0X4fqY0xgVmf1cL3dhXOIR0q_xMOs1vXAE88GTJ3fZUlhAwPZ5alSABUzWiV3O7ZMJ2iHa-4ggO_fFo-KHcEtNpEt9bFmeSuy7Jd2CIpTCUGu5Wkv2_NnhFcxOAqcSquPuU4qnGfzLAQgTRPhH831lOBGui3_i80Vcsh
-.youtube.com	TRUE	/	TRUE	1743544218	GPS	1
-.youtube.com	TRUE	/	TRUE	0	YSC	FdDjnHg1lag
-""")
-
-bot = Client(
-    "URL_UPLOADER_BOT", # Changed name slightly to avoid potential conflicts
-    api_id=int(API_ID), # Ensure API_ID is an integer
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
+import time
+import logging
+import http.cookiejar
+from io import StringIO
+from datetime import datetime
+from pyrogram import Client, filters
+from pyrogram.types import (
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 )
+from pyrogram.errors import (
+    MessageNotModified, MessageIdInvalid, FloodWait
+)
+from pyrogram.enums import ChatAction, ParseMode
 
-# --- مجلد التحميل ---
+# --- 1. Configuration and Setup ---
+
+# Configure Logging
+logging.basicConfig(
+    level=logging.INFO, # Change to DEBUG for more verbose logs
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()] # Log to console
+)
+LOGGER = logging.getLogger(__name__)
+logging.getLogger("pyrogram").setLevel(logging.WARNING) # Reduce pyrogram's verbosity
+
+# Environment Variables
+API_ID = os.environ.get("API_ID")
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+YTUB_COOKIES_CONTENT = os.environ.get("YTUB_COOKIES", "") # Optional
+
+# Validate Essential Config
+if not all([API_ID, API_HASH, BOT_TOKEN]):
+    LOGGER.critical("FATAL ERROR: API_ID, API_HASH, or BOT_TOKEN is missing!")
+    exit(1) # Exit if essential config is missing
+try:
+    API_ID = int(API_ID)
+except ValueError:
+    LOGGER.critical("FATAL ERROR: API_ID must be an integer!")
+    exit(1)
+
+# Constants
 DOWNLOAD_FOLDER = "./downloads/"
+MAX_TG_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024 # 2GB limit for Telegram
+SESSION_TIMEOUT = 1800 # Timeout for inactive sessions (30 minutes)
+
+# Global Session Dictionary (In-memory storage)
+# Format: {user_id: {'timestamp': time.time(), 'data': {...}}}
+user_sessions = {}
+
+# Create Download Folder
 if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
-    print(f"DEBUG: Created download folder: {DOWNLOAD_FOLDER}")
+    LOGGER.info(f"Created download folder: {DOWNLOAD_FOLDER}")
 
-# --- قاموس لتخزين بيانات التنزيل المؤقتة ---
-download_sessions = {} # {user_id: {data}}
+# --- 2. Utility Functions ---
 
-# --- دالة مساعد لتحميل الكوكيز ---
 def load_cookies():
-    """Loads cookies from the YTUB_COOKIES_CONTENT string."""
+    """Loads cookies from the YTUB_COOKIES environment variable."""
     cookie_jar = http.cookiejar.MozillaCookieJar()
     if YTUB_COOKIES_CONTENT and YTUB_COOKIES_CONTENT.strip():
-        # Remove leading/trailing whitespace and ensure header is present
-        cleaned_cookies = YTUB_COOKIES_CONTENT.strip()
-        if not cleaned_cookies.startswith("# Netscape HTTP Cookie File"):
-            cleaned_cookies = "# Netscape HTTP Cookie File\n" + cleaned_cookies
-
         try:
-            # Use StringIO to treat the string as a file
-            cookie_jar.load(StringIO(cleaned_cookies), ignore_discard=True, ignore_expires=True)
-            print("DEBUG: Cookies loaded successfully from variable.")
-            # Optional: Print loaded cookies for verification (remove in production)
-            # for cookie in cookie_jar:
-            #     print(f"DEBUG: Loaded Cookie: {cookie.name}={cookie.value}")
+            cookie_jar.load(StringIO(YTUB_COOKIES_CONTENT), ignore_discard=True, ignore_expires=True)
+            LOGGER.debug("Cookies loaded successfully from variable.")
             return cookie_jar
         except Exception as e:
-            print(f"ERROR: Failed to load cookies from variable: {e}. Proceeding without cookies.")
+            LOGGER.warning(f"Error loading cookies from variable: {e}. Proceeding without cookies.")
             return None
     else:
-        print("DEBUG: YTUB_COOKIES_CONTENT is empty. Proceeding without cookies.")
+        LOGGER.debug("YTUB_COOKIES variable is empty or missing. Proceeding without cookies.")
         return None
 
-# --- دالة تنسيق حجم الملف ---
 def format_bytes(size):
-    """Converts bytes to a human-readable format."""
-    if size is None:
-       return "N/A" # Return N/A if size is None
+    """Formats a size in bytes into a human-readable string."""
+    if size is None: return "N/A"
     try:
         size = float(size)
         if size == 0: return "0 B"
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = int(math.floor(math.log(size, 1024)))
-        # Ensure index is within bounds, especially for very small or large numbers
-        i = max(0, min(len(size_name) - 1, i))
+        size_name = ("B", "KB", "MB", "GB", "TB")
+        i = max(0, min(len(size_name) - 1, int(math.floor(math.log(size, 1024)))))
         p = math.pow(1024, i)
         s = round(size / p, 2)
         return f"{s} {size_name[i]}"
-    except (ValueError, TypeError, OverflowError):
-        # Handle cases where size might not be a number or causes math errors
+    except (ValueError, TypeError, OverflowError) as e:
+        LOGGER.warning(f"Error formatting bytes ({size}): {e}")
         return "N/A"
 
-# --- دالة تنزيل الفيديو/قائمة التشغيل ---
-def download_youtube_content(url, message, format_selector, user_id, media_type):
-    """Downloads content using yt-dlp based on selected format."""
-    print(f"DEBUG: Starting download for URL: {url}, format_selector: {format_selector}, type: {media_type}")
-    # --- Get Initial Info for Title Sanitization ---
-    sanitized_title = f"youtube_download_{user_id}_{int(time.time())}" # Default fallback
-    final_title = 'محتوى يوتيوب'
-    final_description = 'لا يوجد وصف'
-    original_ext = 'mp4' # Default assumption
-
+def td_format(seconds):
+    """Formats duration in seconds to a human-readable string (H M S)."""
+    if seconds is None: return "N/A"
     try:
-        pre_ydl_opts = {
-            'quiet': True,
-            'skip_download': True,
-            'nocheckcertificate': True,
-            'extract_flat': 'discard_in_playlist', # Faster for playlist title
-            'dump_single_json': True,
-            'retries': 3 # Fewer retries for info fetch
-        }
-        cookie_jar_pre = load_cookies()
-        if cookie_jar_pre:
-            pre_ydl_opts['cookiejar'] = cookie_jar_pre
+        seconds = int(float(seconds))
+        if seconds < 0: return "N/A"
+        periods = [('ساعة', 3600), ('دقيقة', 60), ('ثانية', 1)]
+        strings = []
+        for period_name, period_seconds in periods:
+            if seconds >= period_seconds:
+                period_value, seconds = divmod(seconds, period_seconds)
+                if period_value > 0: strings.append(f"{period_value} {period_name}")
+        if not strings: return "أقل من ثانية" if seconds < 1 else "0 ثوان"
+        return "، ".join(strings)
+    except (ValueError, TypeError) as e:
+        LOGGER.warning(f"Error formatting duration ({seconds}): {e}")
+        return "غير معروف"
 
-        with yt_dlp.YoutubeDL(pre_ydl_opts) as ydl_pre:
-            info_pre = ydl_pre.extract_info(url, download=False)
-            base_title = info_pre.get('title', f'youtube_{info_pre.get("id", "download")}')
-            # More aggressive sanitization, replace invalid chars with underscore
-            sanitized_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', base_title)[:100] # Limit length
-            # Use the fetched title/desc if available
-            final_title = info_pre.get('title', final_title)
-            final_description = info_pre.get('description', final_description)
-            original_ext = info_pre.get('ext', original_ext)
-            print(f"DEBUG: Sanitized title base: {sanitized_title}")
+def progress_bar_generator(percentage, bar_length=15):
+    """Generates a simple text-based progress bar string."""
+    try:
+        percentage = max(0.0, min(1.0, float(percentage)))
+        completed = int(round(bar_length * percentage))
+        return '█' * completed + '░' * (bar_length - completed)
+    except ValueError:
+        return '░' * bar_length
+
+async def cleanup_session(user_id, message: Message = None, text="انتهت صلاحية الجلسة أو تم إلغاؤها."):
+    """Removes user session and optionally edits the status message."""
+    if user_id in user_sessions:
+        session_message_id = user_sessions[user_id].get('data', {}).get('status_message_id')
+        del user_sessions[user_id]
+        LOGGER.info(f"Session cleaned for user {user_id}")
+        if message and session_message_id == message.id:
+            try:
+                await message.edit_text(text, reply_markup=None)
+            except (MessageIdInvalid, MessageNotModified):
+                pass # Message already gone or unchanged
+            except Exception as e:
+                 LOGGER.warning(f"Error editing message during session cleanup for user {user_id}: {e}")
+        # Clean download files potentially associated with this user (more robust cleanup needed for shared folder)
+        # For now, we clean files after upload attempt in the main flow
+
+async def edit_status_message(client: Client, session_data: dict, text: str, reply_markup=None):
+    """Safely edits the status message associated with a session."""
+    message_id = session_data.get('status_message_id')
+    chat_id = session_data.get('chat_id')
+    if not message_id or not chat_id:
+        LOGGER.warning("Attempted to edit status message but ID or Chat ID is missing in session.")
+        return
+    try:
+        await client.edit_message_text(chat_id, message_id, text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        return True
+    except MessageNotModified:
+        pass # No change needed
+    except MessageIdInvalid:
+        LOGGER.warning(f"Message {message_id} is invalid or deleted. Cannot edit.")
+        session_data['status_message_id'] = None # Stop trying to edit
+        return False
+    except FloodWait as fw:
+        LOGGER.warning(f"FloodWait for {fw.value}s while editing status message.")
+        await asyncio.sleep(fw.value + 1)
+        return await edit_status_message(client, session_data, text, reply_markup) # Retry after wait
     except Exception as e:
-        print(f"DEBUG: Error fetching initial info for sanitization: {e}. Using default title.")
-        # Fallback title already set
+        LOGGER.error(f"Failed to edit status message {message_id}: {e}", exc_info=True)
+        return False
 
-    # --- Prepare yt-dlp Options for Actual Download ---
-    cookie_jar = load_cookies() # Load again for the actual download
-    output_template_base = os.path.join(DOWNLOAD_FOLDER, sanitized_title)
-    final_expected_ext = 'mp4' # Default expected extension for video after potential merge
+# --- 3. YouTube Interaction Functions ---
 
+async def get_youtube_info(url: str) -> dict:
+    """Fetches video info using yt-dlp. Returns info dict or {'error': msg}."""
     ydl_opts = {
-        'progress_hooks': [lambda d: asyncio.run_coroutine_threadsafe(progress_hook(d, message, user_id), bot.loop).result()], # Run async hook in bot's loop
-        'format': format_selector,
-        'verbose': False, # Less verbose output unless debugging
-        'quiet': True, # Quieter console output
-        'retries': 10,
-        'fragment_retries': 10,
-        'http_chunk_size': 10 * 1024 * 1024, # 10MB chunks
+        'quiet': True,
+        'skip_download': True,
         'nocheckcertificate': True,
-        'prefer_ffmpeg': True, # Essential for merging/conversion
-        'postprocessors': [],
-        'outtmpl': f'{output_template_base}.%(ext)s', # Initial template
-        'keepvideo': False, # Don't keep separate streams after merge
-        'concurrent_fragment_downloads': 5, # Parallel fragment downloads
-        'merge_output_format': 'mp4', # Merge separate video/audio into mp4
-        'final_ext': 'mp4', # Hint for final extension for video
-        'http_headers': { # Mimic browser headers
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8'
+        'retries': 3,
+        'extract_flat': 'discard_in_playlist',
+        'dump_single_json': True,
+        'cookiejar': load_cookies(),
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.5'
         }
     }
-    if cookie_jar:
-        ydl_opts['cookiejar'] = cookie_jar
+    # Remove cookiejar if None
+    if ydl_opts['cookiejar'] is None:
+        del ydl_opts['cookiejar']
 
-    if media_type == 'audio':
-        ydl_opts['postprocessors'].append({
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3', # Convert to MP3
-            'preferredquality': '192', # Standard MP3 quality
-        })
-        # IMPORTANT: Let FFmpegExtractAudio handle the final filename and extension
-        ydl_opts['outtmpl'] = f'{output_template_base}.%(ext)s' # Let initial download happen
-        # We will look for .mp3 after postprocessing
-        final_expected_ext = 'mp3'
-        # Remove merge format if only extracting audio
-        ydl_opts.pop('merge_output_format', None)
-        ydl_opts.pop('final_ext', None)
-    else: # Video
-        # Keep merge_output_format = 'mp4'
-        final_expected_ext = 'mp4'
-
-    # --- Execute Download ---
-    downloaded_files = []
-    error_message = None
-    info_dict = None # To store the final info_dict
+    LOGGER.info(f"Fetching info for URL: {url}")
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            print(f"DEBUG: Running yt-dlp with options: {ydl_opts}")
-            # This will download AND process
-            info_dict = ydl.extract_info(url, download=True)
-            print(f"DEBUG: yt-dlp finished execution.")
-
-            # --- Locate Downloaded File(s) ---
-            # Update title/description from the *final* info_dict after potential playlist processing
-            if info_dict:
-                final_title = info_dict.get('title', final_title)
-                final_description = info_dict.get('description', final_description)
-
-            is_playlist = 'entries' in info_dict and info_dict['entries'] is not None
-
-            if is_playlist:
-                print(f"DEBUG: Processing playlist results ({len(info_dict.get('entries', []))} entries)...")
-                for entry in info_dict.get('entries', []):
-                    if not entry: continue # Skip None entries if yt-dlp failed on one
-
-                    # Path finding logic for playlist entries
-                    entry_filepath = entry.get('filepath') # Path after all processing (yt-dlp >= 2023.06.22)
-                    entry_requested_path = entry.get('_requested_filename') # Path before post-processing
-                    entry_title_raw = entry.get('title', f'playlist_entry_{entry.get("id", "unknown")}')
-                    entry_sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', entry_title_raw)[:100]
-                    entry_base = os.path.join(DOWNLOAD_FOLDER, entry_sanitized)
-                    entry_expected_final_path = f"{entry_base}.{final_expected_ext}"
-
-                    found_path = None
-                    # 1. Check final 'filepath' if available and exists
-                    if entry_filepath and os.path.exists(entry_filepath):
-                        found_path = entry_filepath
-                        print(f"DEBUG: Found playlist file via 'filepath': {found_path}")
-                    # 2. Check constructed path with expected final extension
-                    elif os.path.exists(entry_expected_final_path):
-                         found_path = entry_expected_final_path
-                         print(f"DEBUG: Found playlist file via constructed path: {found_path}")
-                    # 3. Check the path yt-dlp *requested* before post-processing (might exist if PP failed)
-                    elif entry_requested_path and os.path.exists(entry_requested_path):
-                         found_path = entry_requested_path
-                         print(f"DEBUG: Found playlist file via '_requested_filename': {found_path}")
-                    # 4. Fallback check common extensions for video/audio
-                    else:
-                         extensions_to_check = [final_expected_ext, 'mkv', 'webm'] if media_type == 'video' else [final_expected_ext, 'm4a', 'opus']
-                         for ext_guess in extensions_to_check:
-                             fallback_path = f"{entry_base}.{ext_guess}"
-                             if os.path.exists(fallback_path):
-                                 found_path = fallback_path
-                                 print(f"DEBUG: Found playlist file via fallback '{ext_guess}': {found_path}")
-                                 break
-                    if found_path:
-                         downloaded_files.append(found_path)
-                    else:
-                         print(f"WARN: Cannot find downloaded file for playlist entry: '{entry_title_raw}'. Expected base: {entry_base}, Ext: {final_expected_ext}")
-                         print(f"  -> Checked: filepath='{entry_filepath}', expected='{entry_expected_final_path}', requested='{entry_requested_path}'")
-
-            else: # Single video/audio
-                print("DEBUG: Processing single item result...")
-                filepath = info_dict.get('filepath') # Final path after processing
-                requested_path = info_dict.get('_requested_filename') # Path before post-processing
-                expected_final_path = f"{output_template_base}.{final_expected_ext}"
-
-                found_path = None
-                # 1. Check final 'filepath' if available and exists
-                if filepath and os.path.exists(filepath):
-                    found_path = filepath
-                    print(f"DEBUG: Found single file via 'filepath': {found_path}")
-                # 2. Check constructed path with expected final extension
-                elif os.path.exists(expected_final_path):
-                    found_path = expected_final_path
-                    print(f"DEBUG: Found single file via constructed path: {found_path}")
-                # 3. Check the path yt-dlp *requested* before post-processing
-                elif requested_path and os.path.exists(requested_path):
-                    found_path = requested_path
-                    print(f"DEBUG: Found single file via '_requested_filename': {found_path}")
-                # 4. Fallback check common extensions
-                else:
-                     extensions_to_check = [final_expected_ext, 'mkv', 'webm'] if media_type == 'video' else [final_expected_ext, 'm4a', 'opus']
-                     for ext_guess in extensions_to_check:
-                         fallback_path = f"{output_template_base}.{ext_guess}"
-                         if os.path.exists(fallback_path):
-                             found_path = fallback_path
-                             print(f"DEBUG: Found single file via fallback '{ext_guess}': {found_path}")
-                             break
-
-                if found_path:
-                    downloaded_files.append(found_path)
-                else:
-                    error_message = "لم يتم العثور على الملف النهائي بعد التنزيل والمعالجة."
-                    print(f"ERROR: Could not find final file for '{final_title}'. Expected base: {output_template_base}, Ext: {final_expected_ext}")
-                    print(f"  -> Checked: filepath='{filepath}', expected='{expected_final_path}', requested='{requested_path}'")
-
-
+            # Use asyncio.to_thread for the blocking network call
+            info_dict = await asyncio.to_thread(ydl.extract_info, url, download=False)
+            LOGGER.info(f"Info fetched successfully for {url.split('&')[0]}")
+            return info_dict
     except yt_dlp.utils.DownloadError as e:
-        print(f"ERROR: yt-dlp download failed: {e}")
-        error_str = str(e).lower() # Lowercase for easier checking
-        # Provide more specific user-friendly messages
-        if "unsupported url" in error_str: error_message = "الرابط غير مدعوم."
-        elif "video unavailable" in error_str: error_message = "الفيديو غير متاح."
-        elif "private video" in error_str: error_message = "هذا الفيديو خاص."
-        elif "login required" in error_str or "confirm your age" in error_str: error_message = "هذا الفيديو يتطلب تسجيل الدخول أو تأكيد العمر (قد تحتاج لكوكيز صالحة)."
-        elif "premiere" in error_str: error_message = "الفيديو عرض أول ولم يبدأ بعد."
-        elif "is live" in error_str: error_message = "البث المباشر غير مدعوم حاليًا للتحميل."
-        elif "http error 429" in error_str or "too many requests" in error_str: error_message = "خطأ 429: تم حظر IP مؤقتًا بسبب كثرة الطلبات. حاول لاحقًا."
-        elif "http error 403" in error_str or "forbidden" in error_str: error_message = "خطأ 403: الوصول مرفوض (قد يكون مقيدًا أو يتطلب كوكيز أحدث)."
-        elif "http error 404" in error_str: error_message = "خطأ 404: الملف أو الفيديو غير موجود."
-        elif "postprocessing:" in error_str:
-             # Extract postprocessing error if possible
-             pp_error_match = re.search(r"error:\s*(.*?)(?:$|\n)", error_str)
-             pp_error = pp_error_match.group(1).strip() if pp_error_match else "فشل في المعالجة"
-             error_message = f"خطأ في المعالجة: {pp_error}"
-             if "ffmpeg" in error_str and "not found" in error_str: error_message = "خطأ في المعالجة: لم يتم العثور على FFmpeg."
-
-        elif "unable to download webpage" in error_str or "network error" in error_str or "resolve host" in error_str:
-            error_message = "خطأ في الشبكة أو تعذر الوصول للرابط."
-        else:
-            # Try to extract a cleaner error message
-            match = re.search(r'ERROR: (.*?)(?:;|$)', str(e), re.IGNORECASE | re.DOTALL)
-            extracted_err = match.group(1).strip() if match else str(e)
-            error_message = f"فشل التحميل: {extracted_err[:200]}" # Limit length
-            error_message = error_message.replace(DOWNLOAD_FOLDER, '') # Obscure local path
-
+        LOGGER.warning(f"yt-dlp info extraction failed: {e}")
+        # Basic error mapping
+        error_str = str(e).lower()
+        if "video unavailable" in error_str: return {"error": "الفيديو غير متاح."}
+        if "private video" in error_str: return {"error": "هذا الفيديو خاص."}
+        if "confirm your age" in error_str: return {"error": "هذا المحتوى يتطلب تسجيل الدخول وتأكيد العمر."}
+        if "premiere" in error_str: return {"error": "هذا الفيديو عرض أول ولم يبدأ بعد."}
+        if "is live" in error_str: return {"error": "البث المباشر غير مدعوم حاليًا للتحميل."}
+        if "http error 403" in error_str: return {"error": "خطأ 403: الوصول مرفوض (قد يكون مقيدًا أو يتطلب كوكيز)."}
+        if "http error 404" in error_str: return {"error": "خطأ 404: الفيديو غير موجود."}
+        if "invalid url" in error_str: return {"error": "الرابط غير صالح أو غير مدعوم."}
+        if "unable to download webpage" in error_str: return {"error": "تعذر الوصول إلى الرابط."}
+        return {"error": f"فشل جلب المعلومات: {str(e)[:150]}"} # Truncated generic error
     except Exception as e:
-        # Catch potential errors from the file finding logic or other issues
-        print(f"ERROR: General download exception: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc() # Print full traceback for debugging
-        error_message = f"حدث خطأ عام غير متوقع: {e}"
+        LOGGER.error(f"General exception during info fetching: {e}", exc_info=True)
+        return {"error": f"خطأ غير متوقع في جلب المعلومات: {e}"}
 
-    # Final check: Ensure all reported files actually exist
-    final_files = [f for f in downloaded_files if os.path.exists(f)]
-    if len(final_files) != len(downloaded_files):
-        missing_count = len(downloaded_files) - len(final_files)
-        print(f"WARN: {missing_count} file(s) reported by yt-dlp do not exist on disk.")
-        # Optionally add to error message if some files are missing after a supposed success
-        if not error_message and missing_count > 0:
-             error_message = f"تم تحميل {len(final_files)}/{len(downloaded_files)} ملف بنجاح، لكن بعض الملفات مفقودة."
+async def download_progress_hook_async(d: dict, status_message: Message, session_data: dict):
+    """Async progress hook to update Telegram status message."""
+    user_id = session_data.get('user_id')
+    if not user_id: return # Should not happen if session is valid
 
-    # If no files were found and no specific error was set, set a generic error
-    if not final_files and not error_message:
-        error_message = "فشل التحميل لسبب غير معروف ولم يتم العثور على ملفات."
-        print("ERROR: Download process finished but no files were found and no specific error recorded.")
-
-    print(f"DEBUG: Returning files: {final_files}, error: {error_message}, title: {final_title}")
-    return final_files, error_message, final_title, final_description
-
-# --- دالة عرض التقدم (Download Only) ---
-# Needs to be async as it's called via run_coroutine_threadsafe
-async def progress_hook(d, message, user_id):
-    """Updates the message with download progress."""
-    # Check if the session is still active for this user
-    session_data = download_sessions.get(user_id)
-    status_message_id = session_data.get('status_message_id') if session_data else None
-    # Exit if session is gone, message ID is unknown, or hook is for a different message
-    if not session_data or not status_message_id or message.id != status_message_id:
-        # print(f"DEBUG: Progress hook skipped for user {user_id} - session/message mismatch.")
-        return
-
+    # Throttle updates
     now = time.time()
     last_update = session_data.get('last_download_update_time', 0)
-    # Allow 'finished' and 'error' states to bypass throttling for final updates
-    if d['status'] not in ['finished', 'error'] and (now - last_update < 1.5) : # 1.5 second throttle
+    if d['status'] not in ['finished', 'error'] and (now - last_update < 1.5):
         return
     session_data['last_download_update_time'] = now
 
+    text = ""
     try:
-        current_text = ""
-        markup = None # Keep markup=None unless we are showing the final download message
-
         if d['status'] == 'downloading':
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate')
             downloaded_bytes = d.get('downloaded_bytes')
-
-            if total_bytes and downloaded_bytes:
+            if total_bytes and downloaded_bytes is not None:
                 percentage = downloaded_bytes / total_bytes
-                speed_str = d.get('speed_str', d.get('_speed_str', "N/A")) # yt-dlp uses 'speed_str'
-                eta_str = d.get('eta_str', d.get('_eta_str', "N/A"))       # yt-dlp uses 'eta_str'
-                total_size_str = format_bytes(total_bytes)
-                downloaded_size_str = format_bytes(downloaded_bytes)
-                progress_bar_str = progress_bar_generator(percentage)
+                speed_str = d.get('_speed_str', "N/A")
+                eta_str = d.get('_eta_str', "N/A")
+                filename = d.get('info_dict', {}).get('title', os.path.basename(d.get('filename', '')) )[:50]
+                pl_info = f" (مقطع {d.get('playlist_index')}/{d.get('playlist_count')})" if d.get('playlist_index') else ""
 
-                # Try to get filename from info_dict if available, otherwise from hook dict
-                filename_info = d.get('info_dict', {}).get('title', os.path.basename(d.get('filename', '')))[:50]
-                if not filename_info: filename_info = os.path.basename(d.get('tmpfilename', 'download'))[:50]
-
-                # Playlist info
-                playlist_index = d.get('playlist_index')
-                playlist_count = d.get('playlist_count')
-                playlist_info = f" (مقطع {playlist_index}/{playlist_count})" if playlist_index and playlist_count else ""
-
-                current_text = (
-                    f"**⏳ جاري التحميل{playlist_info}:**\n"
-                    f"`{filename_info}...`\n"
-                    f"📦 {progress_bar_str} ({percentage*100:.1f}%)\n"
-                    f"💾 {downloaded_size_str} / {total_size_str}\n"
+                text = (
+                    f"{session_data.get('base_caption', '...')}\n\n"
+                    f"**⏳ جاري التحميل{pl_info}:**\n"
+                    f"`{filename}...`\n"
+                    f"📦 {progress_bar_generator(percentage)} ({percentage*100:.1f}%)\n"
+                    f"💾 {format_bytes(downloaded_bytes)} / {format_bytes(total_bytes)}\n"
                     f"🚀 السرعة: {speed_str} | ⏳ المتبقي: {eta_str}"
                 )
 
         elif d['status'] == 'finished':
-            filename = d.get('filename')
-            total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate')
-            print(f"DEBUG: Download finished for: {filename} (Size: {format_bytes(total_bytes)})")
-
-            # Check if it's the last item in a playlist or a single video
-            is_last_or_single = False
-            playlist_index = d.get('playlist_index')
-            playlist_count = d.get('playlist_count')
-            if not playlist_index or playlist_index == playlist_count:
-                 is_last_or_single = True
-
-            if is_last_or_single:
-                 # This is the final download completion signal
-                 current_text = "✅ اكتمل التحميل. جاري المعالجة والرفع..."
-                 session_data['initial_text'] = "✅ اكتمل التحميل." # Update base text for upload stage
-                 markup = None # Remove buttons now (already done in format_callback, but belt-and-suspenders)
+             # Update only if it's the last item or single download
+            is_last = not d.get('playlist_index') or (d.get('playlist_index') == d.get('playlist_count'))
+            if is_last:
+                 text = f"{session_data.get('base_caption', '...')}\n\n✅ اكتمل التحميل. جاري المعالجة والرفع..."
+                 # Update base caption for upload phase (optional)
+                 session_data['base_caption'] = f"✅ {session_data.get('title', 'اكتمل التحميل')}"
             else:
-                 # For intermediate playlist items, just log and don't edit the main message
-                 filename_info = d.get('info_dict', {}).get('title', os.path.basename(filename))[:50]
-                 print(f"DEBUG: Playlist item {playlist_index}/{playlist_count} download finished: {filename_info}")
-                 return # Don't edit the main status message for intermediate finishes
+                 LOGGER.info(f"Playlist item {d.get('playlist_index')}/{d.get('playlist_count')} finished.")
+                 return # Don't edit message for intermediate playlist items
 
         elif d['status'] == 'error':
-            # yt-dlp already logs errors, we handle the main error in download_youtube_content
-            print(f"ERROR: yt-dlp hook reported an error during download process: {d.get('error', 'Unknown hook error')}")
-            # We won't update the message here, the main function will handle the final error message
-            return # Let the main function report the final error
+            LOGGER.error(f"yt-dlp hook reported error for user {user_id}: {d.get('_error_cause', 'Unknown')}")
+            # Error is handled by the main download function's return value
+            return # Don't edit here, let the main function handle failure display
 
-        # Edit the message only if text is generated and message ID is valid
-        if current_text and status_message_id:
-             await bot.edit_message_text(
-                  chat_id=message.chat.id,
-                  message_id=status_message_id,
-                  # Prepend the initial text only for the 'downloading' status update
-                  text=f"{session_data.get('initial_text', '')}\n\n{current_text}" if d['status'] == 'downloading' else current_text,
-                  reply_markup=markup # Should be None for downloading/finished
-             )
+        if text:
+            await edit_status_message(None, session_data, text) # Pass client=None if not available here
 
-    except MessageNotModified:
-        # print("DEBUG: Message not modified (progress hook)")
-        pass
-    except FloodWait as fw:
-        print(f"FloodWait in progress_hook: Waiting {fw.value} seconds...")
-        await asyncio.sleep(fw.value + 1)
-    except MessageIdInvalid:
-        print(f"WARN: Message ID {status_message_id} invalid in progress_hook. Clearing from session.")
-        if user_id in download_sessions:
-            download_sessions[user_id]['status_message_id'] = None # Stop further edits
     except Exception as e:
-        print(f"ERROR in progress_hook: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        if user_id in download_sessions:
-            download_sessions[user_id]['status_message_id'] = None # Stop further edits
+        LOGGER.error(f"Error in download progress hook for user {user_id}: {e}", exc_info=True)
 
-
-# --- دالة إنشاء شريط التقدم المرئي ---
-def progress_bar_generator(percentage, bar_length=15): # Keep it relatively short
-    """Generates a textual progress bar."""
-    try:
-        percentage = float(percentage)
-        # Ensure percentage is between 0 and 1
-        percentage = max(0.0, min(1.0, percentage))
-        completed_blocks = int(round(bar_length * percentage))
-        remaining_blocks = bar_length - completed_blocks
-        return '█' * completed_blocks + '░' * remaining_blocks
-    except (ValueError, TypeError):
-        return '░' * bar_length # Return empty bar on error
-
-# --- معالج أوامر البدء ---
-@bot.on_message(filters.command(["start", "help"]) & filters.private)
-async def start_command(client, message):
-    """Handles the /start and /help commands."""
-    await message.reply_text(
-        "أهلاً بك! أنا بوت تحميل فيديوهات وقوائم تشغيل يوتيوب.\n"
-        "أرسل لي رابط فيديو يوتيوب أو قائمة تشغيل وسأقوم بتحميلها وإرسالها لك.\n\n"
-        "**طريقة الاستخدام:**\n"
-        "1. أرسل رابط يوتيوب (فيديو، قائمة تشغيل، أو Short) في هذه الدردشة.\n"
-        "2. اختر نوع التحميل (فيديو أو صوت).\n"
-        "3. اختر الجودة المطلوبة من القائمة (ضعيف، متوسط، عالي للفيديو / أو جودة صوت محددة).\n\n"
-        "**الصيغ المدعومة:**\n"
-        "- الفيديو: MP4 (عادةً ما يتم الدمج في هذا التنسيق).\n"
-        "- الصوت: MP3 (يتم التحويل لهذا التنسيق).\n\n"
-        "**ملاحظات:**\n"
-        "- التحميل قد يستغرق بعض الوقت.\n"
-        "- الملفات الأكبر من 2GB قد تفشل في الرفع (حد تيليجرام).\n"
-        "- يتم استخدام الكوكيز المرفقة لمحاولة تحميل الفيديوهات المقيدة بالعمر أو التي تتطلب تسجيل دخول.\n"
-        "- يستخدم البوت `yt-dlp` و `FFmpeg` (إذا كان مثبتًا) للمعالجة.",
-        disable_web_page_preview=True,
-        quote=True
-    )
-
-# --- دالة لجلب معلومات الفيديو والصيغ المتاحة ---
-# Now uses asyncio.to_thread for non-blocking execution
-async def get_video_info_and_formats_async(url):
-    """Fetches video info dictionary using yt-dlp in a separate thread."""
-    ydl_opts = {
-        'quiet': True,
-        'verbose': False, # Less verbose normally
-        'skip_download': True,
-        'nocheckcertificate': True,
-        'retries': 5, # Retries for info fetch
-        'extract_flat': 'discard_in_playlist', # Faster info for playlists
-        'dump_single_json': True, # Get info as a single JSON object
-        'http_headers': { # Use same headers as download
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8'
-        }
-    }
-    cookie_jar = load_cookies()
-    if cookie_jar:
-        ydl_opts['cookiejar'] = cookie_jar
-
-    print(f"DEBUG: Fetching info for URL: {url} using asyncio.to_thread")
-
-    def sync_get_info():
+# Wrapper for yt-dlp hook (since it's called synchronously)
+def download_progress_hook_wrapper(d: dict):
+    """Wrapper to run the async hook in the event loop."""
+    session_data = d.get('session_data') # We need to pass session data into ydl_opts
+    status_message = d.get('status_message_obj') # Pass the message object
+    if session_data and status_message:
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=False)
-                print(f"DEBUG: Info fetched successfully for {url}")
-                return info_dict
-        except yt_dlp.utils.DownloadError as e:
-            print(f"ERROR: yt-dlp failed to extract info: {e}")
-            # Return a dictionary with the error string for handling
-            return {"error": str(e)}
-        except Exception as e:
-            print(f"ERROR: General exception in sync_get_info: {type(e).__name__}: {e}")
-            return {"error": f"خطأ غير متوقع في جلب المعلومات: {e}"}
+            # Ensure there's a running event loop (might be needed if yt-dlp runs in a separate thread)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                 asyncio.ensure_future(download_progress_hook_async(d, status_message, session_data))
+            else:
+                 # Fallback if no loop (less ideal) - might block
+                 # Or log a warning: LOGGER.warning("No running event loop for progress hook")
+                 pass
+        except RuntimeError:
+             # LOGGER.warning("No running event loop found for progress hook.")
+             pass # Ignore if no loop is readily available
+    else:
+        LOGGER.warning("Session data or status message missing in progress hook wrapper.")
 
-    # Run the synchronous yt-dlp call in a separate thread
-    return await asyncio.to_thread(sync_get_info)
+
+def do_youtube_download(url: str, format_selector: str, media_type: str, session_data: dict, status_message: Message) -> (list[str] | None, str | None):
+    """
+    Performs the download using yt-dlp in a blocking manner.
+    Returns (list_of_file_paths, None) on success, or (None, error_message) on failure.
+    """
+    user_id = session_data.get('user_id', 'UnknownUser')
+    LOGGER.info(f"Starting download for user {user_id}, type: {media_type}, format: '{format_selector}'")
+
+    base_title = re.sub(r'[\\/*?:"<>|]', "", session_data.get('title', 'youtube_download'))[:100]
+    output_template_base = os.path.join(DOWNLOAD_FOLDER, f"{user_id}_{base_title}_{int(time.time())}")
+
+    final_expected_ext = 'mp3' if media_type == 'audio' else 'mp4'
+    output_template = f'{output_template_base}.%(ext)s'
+    postprocessors = []
+
+    if media_type == 'audio':
+        output_template = f'{output_template_base}.mp3' # Expect mp3
+        postprocessors.append({
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        })
+
+    ydl_opts = {
+        'format': format_selector,
+        'outtmpl': output_template,
+        'progress_hooks': [download_progress_hook_wrapper],
+        'postprocessors': postprocessors,
+        'nocheckcertificate': True,
+        'prefer_ffmpeg': True,
+        'retries': 5,
+        'fragment_retries': 5,
+        'http_chunk_size': 10 * 1024 * 1024,
+        'merge_output_format': 'mp4',
+        'cookiejar': load_cookies(),
+        'verbose': False, # Keep False unless debugging yt-dlp itself
+        'quiet': False, # Need False for progress hooks
+        'ignoreerrors': True, # Attempt to continue playlists on error
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.5'
+        },
+        # Pass necessary data to the hook wrapper
+        'session_data': session_data,
+        'status_message_obj': status_message,
+    }
+    if ydl_opts['cookiejar'] is None: del ydl_opts['cookiejar']
+
+    downloaded_files = []
+    final_error_message = None
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            LOGGER.debug(f"Running yt-dlp for user {user_id} with opts: { {k: v for k, v in ydl_opts.items() if k not in ['session_data', 'status_message_obj']} }") # Log opts without sensitive data
+            info_dict = ydl.extract_info(url, download=True) # Blocking call
+            LOGGER.info(f"yt-dlp finished for user {user_id}")
+
+            # --- Locate downloaded file(s) ---
+            is_playlist = 'entries' in info_dict and info_dict['entries'] is not None
+
+            if is_playlist:
+                LOGGER.debug(f"Processing playlist results for user {user_id} ({len(info_dict.get('entries',[]))} entries)")
+                for entry in info_dict.get('entries', []):
+                    if not entry: continue # Skip potential None entries on error
+                    filepath = None
+                    req_dl = entry.get('requested_downloads')
+                    if req_dl: filepath = req_dl[-1].get('filepath') # Most reliable path after processing
+
+                    if filepath and os.path.exists(filepath):
+                        downloaded_files.append(filepath)
+                        LOGGER.debug(f"Found playlist file for user {user_id} via requested_downloads: {filepath}")
+                    else: # Fallback construction (less reliable)
+                         entry_title = re.sub(r'[\\/*?:"<>|]', "", entry.get('title','entry'))[:50]
+                         constructed_base = os.path.join(DOWNLOAD_FOLDER, f"{user_id}_{entry_title}") # Need a unique base per entry
+                         expected_path = f"{constructed_base}.{final_expected_ext}" # Simplified fallback path
+                         # Glob might be safer here if filenames aren't exact
+                         possible_files = [f for f in os.listdir(DOWNLOAD_FOLDER) if f.startswith(f"{user_id}_{entry_title}") and f.endswith(f".{final_expected_ext}")]
+                         if possible_files:
+                              found_path = os.path.join(DOWNLOAD_FOLDER, possible_files[0])
+                              if os.path.exists(found_path):
+                                   downloaded_files.append(found_path)
+                                   LOGGER.debug(f"Found playlist file for user {user_id} via fallback glob: {found_path}")
+                              else:
+                                   LOGGER.warning(f"File missing for playlist entry: {entry.get('title','?')}")
+                         else:
+                              LOGGER.warning(f"Cannot find file for playlist entry: {entry.get('title','?')}")
 
 
-# --- دالة لتصنيف وعرض الصيغ (مع تقسيم جودة الفيديو) ---
-def categorize_and_prepare_formats(info_dict, media_type):
-    """Prepares InlineKeyboardButtons for format selection with video quality tiers."""
+            else: # Single item
+                LOGGER.debug(f"Processing single item result for user {user_id}")
+                filepath = None
+                req_dl = info_dict.get('requested_downloads')
+                if req_dl: filepath = req_dl[-1].get('filepath')
+
+                if filepath and os.path.exists(filepath):
+                    downloaded_files.append(filepath)
+                    LOGGER.debug(f"Found single file for user {user_id} via requested_downloads: {filepath}")
+                else: # Fallback construction
+                     expected_path = f"{output_template_base}.{final_expected_ext}"
+                     if os.path.exists(expected_path):
+                         downloaded_files.append(expected_path)
+                         LOGGER.debug(f"Found single file for user {user_id} via constructed path: {expected_path}")
+                     else: # Last resort: Glob based on base name
+                        possible_files = [f for f in os.listdir(DOWNLOAD_FOLDER) if f.startswith(os.path.basename(output_template_base)) and f.endswith(f".{final_expected_ext}")]
+                        if possible_files:
+                              found_path = os.path.join(DOWNLOAD_FOLDER, possible_files[0])
+                              if os.path.exists(found_path):
+                                   downloaded_files.append(found_path)
+                                   LOGGER.debug(f"Found single file for user {user_id} via fallback glob: {found_path}")
+                              else:
+                                   LOGGER.error(f"Could not find final file for user {user_id} (single).")
+                                   final_error_message = "لم يتم العثور على الملف النهائي بعد المعالجة."
+                        else:
+                            LOGGER.error(f"Could not find final file for user {user_id} (single).")
+                            final_error_message = "لم يتم العثور على الملف النهائي بعد المعالجة."
+
+    except yt_dlp.utils.DownloadError as e:
+        LOGGER.error(f"yt-dlp download failed for user {user_id}: {e}")
+        # Basic error mapping (same as info fetch) - can be expanded
+        error_str = str(e).lower()
+        if "video unavailable" in error_str: final_error_message = "الفيديو غير متاح."
+        elif "private video" in error_str: final_error_message = "هذا الفيديو خاص."
+        # ... (add other specific errors) ...
+        else: final_error_message = f"فشل التحميل: {str(e)[:150]}"
+    except Exception as e:
+        LOGGER.error(f"General exception during download for user {user_id}: {e}", exc_info=True)
+        final_error_message = f"حدث خطأ غير متوقع أثناء التحميل: {e}"
+
+    # Final check
+    valid_files = [f for f in downloaded_files if os.path.exists(f)]
+    if not valid_files and not final_error_message:
+        LOGGER.error(f"Download finished for user {user_id} but no valid files found and no error reported.")
+        final_error_message = "فشل التحميل لسبب غير معروف ولم يتم العثور على ملفات."
+
+    if final_error_message:
+        return None, final_error_message
+    else:
+        return valid_files, None
+
+# --- 4. Telegram Interaction Functions ---
+
+def create_media_type_selection(info_dict: dict) -> (str, InlineKeyboardMarkup):
+    """Creates caption and buttons for selecting media type."""
+    title = info_dict.get('title', 'غير متوفر')
+    channel = info_dict.get('channel') or info_dict.get('uploader', 'غير معروف')
+    duration = td_format(info_dict.get('duration'))
+    is_playlist = info_dict.get('_type') == 'playlist' or \
+                  (isinstance(info_dict.get('entries'), list) and len(info_dict['entries']) > 0)
+    item_count = len(info_dict['entries']) if is_playlist and info_dict.get('entries') else 1
+
+    caption = f"**{title}**\n\n"
+    if channel: caption += f"📺 **القناة:** {channel}\n"
+    if is_playlist:
+        caption += f"🔢 **عدد المقاطع:** {item_count}\n"
+    elif duration != "N/A":
+        caption += f"⏱️ **المدة:** {duration}\n"
+    # Add other details if needed (views, date etc.)
+
+    caption = caption[:800] + f"\n\n🔧 **اختر نوع التحميل المطلوب:**"
+
+    buttons = [
+        [InlineKeyboardButton("صوت 🔉", callback_data="type_audio"), InlineKeyboardButton("فيديو 🎬", callback_data="type_video")],
+        [InlineKeyboardButton("إلغاء ❌", callback_data="cancel_session")]
+    ]
+    markup = InlineKeyboardMarkup(buttons)
+    return caption, markup
+
+def create_format_selection(info_dict: dict, media_type: str) -> (str | None, InlineKeyboardMarkup | None):
+    """Creates text and buttons for selecting download format/quality."""
     formats = info_dict.get('formats', [])
     if not formats:
-        return None, "لم يتم العثور على صيغ متاحة في معلومات الفيديو."
+        return "لم يتم العثور على صيغ متاحة.", None
 
     buttons = []
-    initial_text = ""
+    text = ""
 
     if media_type == 'video':
-        initial_text = "🎬 اختر جودة الفيديو المطلوبة:"
-        # Define quality tiers {tier_name: {label: '', selector: '', best_format: None}}
-        quality_tiers = {
-            "low": {"label": "ضعيفة (<= 480p)", "selector": "format_video_low", "best_format": None, "max_h": 480},
-            "medium": {"label": "متوسطة (720p)", "selector": "format_video_medium", "best_format": None, "max_h": 720},
-            "high": {"label": "عالية (>= 1080p)", "selector": "format_video_high", "best_format": None, "min_h": 1080},
-        }
-        # Dictionary to store the best format found for each available height {height: format_dict}
-        available_formats_by_height = {}
+        text = "🎬 اختر جودة الفيديو المطلوبة:"
+        # Simplified tier logic (can be expanded as before)
+        # Find best available for each tier preference
+        tiers = {'low': None, 'medium': None, 'high': None}
+        found_formats = {} # height: format_info
 
-        # --- Find the best format for each available height ---
         for f in formats:
-            # Basic checks: needs video codec, height, and ideally extension
-            height = f.get('height')
-            vcodec = f.get('vcodec', 'none')
-            if not height or vcodec == 'none' or vcodec == 'unknown':
-                continue
+             h = f.get('height')
+             if h and f.get('vcodec') != 'none':
+                 # Simple selection: store the first one found per height (yt-dlp usually lists better first)
+                 # More complex logic (like previous versions) can be re-added here if needed
+                 if h not in found_formats:
+                      found_formats[h] = f
 
-            # Determine if the current format `f` is better than the existing one for this height
-            is_better = False
-            current_best = available_formats_by_height.get(height)
-            has_audio = f.get('acodec', 'none') != 'none'
-            ext = f.get('ext')
-            tbr = f.get('tbr') # Total bitrate as a fallback quality measure
+        sorted_heights = sorted(found_formats.keys(), reverse=True)
 
-            if not current_best:
-                is_better = True
-            else:
-                current_has_audio = current_best.get('acodec', 'none') != 'none'
-                current_ext = current_best.get('ext')
-                current_tbr = current_best.get('tbr')
-
-                # Prioritization logic:
-                # 1. Prefer combined streams (video+audio) over video-only
-                if has_audio and not current_has_audio: is_better = True
-                elif has_audio == current_has_audio:
-                    # 2. If audio status is same, prefer mp4 extension
-                    if ext == 'mp4' and current_ext != 'mp4': is_better = True
-                    # 3. If extension is also same, prefer higher total bitrate (if available)
-                    elif ext == current_ext and tbr and current_tbr and tbr > current_tbr: is_better = True
-                    # 4. Don't replace an mp4 with another format unless the new one adds audio
-                    elif current_ext == 'mp4' and ext != 'mp4' and not (has_audio and not current_has_audio):
-                        is_better = False # Keep the existing mp4
-
-            if is_better:
-                available_formats_by_height[height] = f
-
-        # --- Assign best format to each quality tier ---
-        sorted_heights = sorted(available_formats_by_height.keys(), reverse=True) # Process highest first
-
-        assigned_formats = set() # Keep track of formats assigned to prevent duplicates in different tiers
-
-        # Assign High Tier (>= 1080p)
+        # Assign to tiers (simplified)
         for h in sorted_heights:
-            if h >= quality_tiers["high"]["min_h"]:
-                 fmt = available_formats_by_height[h]
-                 if fmt['format_id'] not in assigned_formats:
-                     quality_tiers["high"]["best_format"] = fmt
-                     assigned_formats.add(fmt['format_id'])
-                     break # Found the best for high tier
+            if h >= 1080 and not tiers['high']: tiers['high'] = found_formats[h]
+            if h >= 720 and not tiers['medium']: tiers['medium'] = found_formats[h] # Can overlap with high if only >720 exists
+            if h <= 480 and not tiers['low']: tiers['low'] = found_formats[h] # Takes highest available <= 480p
 
-        # Assign Medium Tier (~720p) - find best <= 720p not already assigned to high
-        for h in sorted_heights:
-             if h <= quality_tiers["medium"]["max_h"]:
-                  fmt = available_formats_by_height[h]
-                  if fmt['format_id'] not in assigned_formats:
-                      quality_tiers["medium"]["best_format"] = fmt
-                      assigned_formats.add(fmt['format_id'])
-                      break # Found the best for medium tier
-
-        # Assign Low Tier (<= 480p) - find best <= 480p not already assigned
-        for h in sorted_heights:
-            if h <= quality_tiers["low"]["max_h"]:
-                 fmt = available_formats_by_height[h]
-                 if fmt['format_id'] not in assigned_formats:
-                     quality_tiers["low"]["best_format"] = fmt
-                     assigned_formats.add(fmt['format_id'])
-                     break # Found the best for low tier
-
-        # --- Create buttons for available tiers ---
-        for tier_data in quality_tiers.values():
-            fmt = tier_data.get("best_format")
-            if fmt:
-                height = fmt.get('height')
-                ext = fmt.get('ext')
-                # Use filesize_approx if filesize is missing, otherwise None
-                filesize = fmt.get('filesize') or fmt.get('filesize_approx')
-                size_str = f" ({format_bytes(filesize)})" if filesize else ""
-                has_audio_str = "🔊" if fmt.get('acodec', 'none') != 'none' else ""
-                # Label: Tier Name - Resolution (Extension) [Size] AudioIndicator
-                label = f"{tier_data['label']} - {height}p ({ext}){size_str} {has_audio_str}".strip()
-                buttons.append([InlineKeyboardButton(label, callback_data=tier_data['selector'])])
-
-        if not buttons: # Fallback if categorization failed but formats exist
-            print("WARN: Video tier categorization failed, trying generic best.")
-            # Offer a generic 'best' option as a last resort if tiers failed
-            buttons.append([InlineKeyboardButton("أفضل جودة متاحة 🎬", callback_data="format_video_best")])
-            # return None, "لم يتم العثور على صيغ فيديو مناسبة للعرض بعد التصنيف."
-
+        # Create buttons
+        tier_map = {"low": "ضعيفة (<= 480p)", "medium": "متوسطة (~720p)", "high": "عالية (>= 1080p)"}
+        for tier, name in tier_map.items():
+             fmt = tiers.get(tier)
+             if fmt:
+                 size = format_bytes(fmt.get('filesize') or fmt.get('filesize_approx'))
+                 label = f"{name} - {fmt.get('height')}p ({fmt.get('ext')}) {f'({size})' if size != 'N/A' else ''}"
+                 buttons.append([InlineKeyboardButton(label, callback_data=f"format_video_{tier}")])
 
     elif media_type == 'audio':
-        initial_text = "🔉 اختر جودة الصوت المطلوبة:"
-        audio_formats = []
-        # Prioritize audio-only formats first
-        for f in formats:
-            acodec = f.get('acodec', 'none')
-            vcodec = f.get('vcodec', 'none')
-            # Check for valid audio codec and no video codec
-            if acodec not in ['none', None] and vcodec in ['none', None]:
-                 # Optional: Check for reasonable extensions
-                 if f.get('ext') in ['m4a', 'mp3', 'opus', 'ogg', 'aac', 'flac', 'wav']:
-                     audio_formats.append(f)
-
-        # If no audio-only found, consider combined formats with audio as fallback
-        if not audio_formats:
-            print("WARN: No audio-only formats found, considering combined formats (mp4/webm) with audio.")
-            for f in formats:
-                acodec = f.get('acodec', 'none')
-                if acodec not in ['none', None]:
-                     # Allow common video containers if they have audio
-                     if f.get('ext') in ['mp4', 'm4a', 'webm']:
-                         audio_formats.append(f)
-
-        if not audio_formats:
-            return None, "لم يتم العثور على أي صيغ صوتية متاحة (حتى ضمن ملفات الفيديو)."
-
-        # Sort by audio bitrate (abr), descending. Use 0 if abr is missing.
-        audio_formats.sort(key=lambda x: x.get('abr', 0) or 0, reverse=True)
-
-        # Add a "Best Quality" option first
-        buttons.append([InlineKeyboardButton("أفضل جودة صوت 🏆", callback_data="format_audio_best")])
-
-        limit = 6 # Limit the number of specific options shown
-        count = 0
-        added_labels = set() # To avoid showing duplicate labels (e.g., multiple ~128kbps Opus)
-
-        for f in audio_formats:
-            if count >= limit: break
-            format_id = f.get('format_id')
-            if not format_id: continue # Skip if format_id is missing
-
-            ext = f.get('ext')
-            abr = f.get('abr') # Audio bitrate
-            acodec = f.get('acodec', 'N/A').replace('mp4a.40.2', 'aac') # Clean codec name
-
-            # Approximate size if available
-            filesize = f.get('filesize') or f.get('filesize_approx')
-            size_str = f" ({format_bytes(filesize)})" if filesize else ""
-
-            # Create a descriptive label
-            label_parts = []
-            if abr: label_parts.append(f"~{abr:.0f}kbps")
-            label_parts.append(acodec)
-            if ext: label_parts.append(f"({ext})")
-            label = " ".join(label_parts).strip() + size_str
-
-            # Skip if label is empty or already added
-            if not label or label in added_labels: continue
-
-            buttons.append([InlineKeyboardButton(label, callback_data=f"format_audio_{format_id}")])
-            added_labels.add(label)
-            count += 1
-
-    # Add Cancel button to all format selections
-    if buttons: # Only add cancel if there are other options
-        buttons.append([InlineKeyboardButton("➡️ العودة", callback_data="format_back_to_type")])
-        buttons.append([InlineKeyboardButton("إلغاء ❌", callback_data="format_cancel")])
-    else:
-         # If no buttons were generated at all
-         return None, f"لم يتم العثور على صيغ متاحة قابلة للعرض لـ **{media_type}**."
-
-    reply_markup = InlineKeyboardMarkup(buttons)
-    return reply_markup, initial_text
-
-# --- معالج الرسائل النصية (روابط يوتيوب) ---
-@bot.on_message(filters.text & filters.private & ~filters.command(["start", "help"]))
-async def handle_youtube_url(client: Client, message: filters.Message):
-    """Handles incoming text messages containing YouTube URLs."""
-    url = message.text.strip()
-    # Slightly improved regex to better handle various URL formats including shorts, live, playlists
-    youtube_regex = re.compile(
-        r'(?:https?://)?'                          # Optional http(s)://
-        r'(?:www\.|m\.)?'                           # Optional www. or m.
-        r'(?:youtube(?:-nocookie)?\.com|youtu\.be)' # Domain variations
-        r'/'                                       # Slash separator
-        r'(?:watch\?v=|embed/|v/|live/|shorts/|playlist\?list=|attribution_link\?.*v%3D)?' # Path variations
-        r'([a-zA-Z0-9_-]{11,})'                    # Video or Playlist ID (11+ chars)
-        r'(?:[&\?].*)?'                            # Optional remaining query params
-    )
-    match = youtube_regex.match(url)
-
-    if not match:
-        await message.reply_text("الرابط الذي أرسلته لا يبدو كرابط يوتيوب صالح. يرجى المحاولة مرة أخرى.", quote=True)
-        return
-
-    # Use the matched ID or list parameter for cleaner URL processing if needed
-    matched_id = match.group(1)
-    # Reconstruct a cleaner URL (optional, but can help yt-dlp sometimes)
-    if "playlist?list=" in url:
-        clean_url = f"https://www.youtube.com/playlist?list={matched_id}"
-    elif "/shorts/" in url or "/live/" in url:
-         clean_url = f"https://www.youtube.com/watch?v={matched_id}" # Treat shorts/live like videos
-    else:
-        clean_url = f"https://www.youtube.com/watch?v={matched_id}"
-    print(f"DEBUG: Processing URL: {url} (Cleaned: {clean_url})")
-
-
-    user_id = message.from_user.id
-    # --- Clear Previous Session ---
-    if user_id in download_sessions:
-        print(f"DEBUG: Clearing previous session for user {user_id}")
-        old_session = download_sessions.pop(user_id, None)
-        if old_session and old_session.get('status_message_id'):
-            try:
-                # Attempt to edit the old message to indicate cancellation
-                await client.edit_message_text(message.chat.id, old_session['status_message_id'], "تم بدء عملية جديدة.")
-                await asyncio.sleep(2) # Give user time to see
-                await client.delete_messages(message.chat.id, old_session['status_message_id'])
-            except (MessageIdInvalid, MessageNotModified):
-                 print(f"WARN: Could not edit/delete previous status message {old_session['status_message_id']} for user {user_id}.")
-            except Exception as e:
-                print(f"WARN: Error deleting previous status message {old_session.get('status_message_id')}: {e}")
-
-
-    status_message = await message.reply_text("🔍 جاري جلب معلومات الرابط...", quote=True)
-    await client.send_chat_action(message.chat.id, ChatAction.TYPING)
-
-    # --- Fetch Video Info Asynchronously ---
-    info_dict = await get_video_info_and_formats_async(clean_url) # Use cleaned URL
-
-    # --- Error Handling for Info Fetch ---
-    if not info_dict or isinstance(info_dict.get("error"), str):
-        error_msg = info_dict.get("error", "فشل جلب معلومات الفيديو لسبب غير معروف.") if isinstance(info_dict, dict) else "فشل جلب معلومات الفيديو."
-        print(f"ERROR: Info fetch failed for {url}. Raw error: {error_msg}")
-        # Map common technical errors to user-friendly messages
-        error_map = {
-            "video unavailable": "❌ الفيديو غير متاح.",
-            "private video": "❌ هذا الفيديو خاص ولا يمكن الوصول إليه.",
-            "login required": "🔒 هذا المحتوى يتطلب تسجيل الدخول (قد تحتاج لتحديث الكوكيز).",
-            "confirm your age": "🔞 هذا المحتوى يتطلب تأكيد العمر (قد تحتاج لتحديث الكوكيز).",
-            "premiere": "⏳ الفيديو عرض أول ولم يبدأ بعد.",
-            "is live": "🔴 البث المباشر غير مدعوم حاليًا للتحميل المباشر.",
-            "http error 403": "🚫 خطأ 403: الوصول مرفوض (قد يكون المحتوى مقيدًا جغرافيًا أو يتطلب كوكيز).",
-            "http error 404": "❓ خطأ 404: الفيديو أو قائمة التشغيل غير موجودة.",
-            "http error 429": "⏳ خطأ 429: تم حظر الطلبات مؤقتًا. يرجى المحاولة لاحقًا.",
-            "unable to download webpage": "🌐 تعذر الوصول إلى صفحة الويب الخاصة بالرابط.",
-            "resolve host": "🌐 خطأ في الشبكة، تعذر العثور على المضيف.",
-            "unsupported url": "🔗 الرابط غير مدعوم بواسطة `yt-dlp`."
-        }
-        user_friendly_error = f"❌ فشل جلب المعلومات:\n`{error_msg[:300]}`" # Default with raw error
-        for key, friendly_msg in error_map.items():
-            if key.lower() in error_msg.lower():
-                user_friendly_error = friendly_msg
-                break
-
-        await status_message.edit_text(user_friendly_error)
-        await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
-        # Clean up session data if created prematurely
-        if user_id in download_sessions: del download_sessions[user_id]
-        return
-
-    # --- Extract Metadata ---
-    # Use .get() with defaults for safety
-    title = info_dict.get('title', 'غير متوفر')
-    thumbnail_url = info_dict.get('thumbnail')
-    view_count = info_dict.get('view_count')
-    duration = info_dict.get('duration')
-    duration_str = td_format(duration) if duration else "غير معروف"
-    # Determine if it's a playlist ('entries' exists and is a list, could be empty)
-    is_playlist = info_dict.get('_type') == 'playlist' or 'entries' in info_dict
-    # Count actual entries if present, otherwise assume 1 item
-    item_count = len(info_dict.get('entries') or []) if is_playlist else 1
-    channel_name = info_dict.get('channel', info_dict.get('uploader', 'غير معروف')) # Fallback to uploader
-    upload_date_str = info_dict.get('upload_date') # YYYYMMDD
-    upload_date_formatted = None
-    if upload_date_str:
-        try:
-            from datetime import datetime
-            upload_date = datetime.strptime(upload_date_str, '%Y%m%d')
-            upload_date_formatted = upload_date.strftime('%Y-%m-%d') # Format as YYYY-MM-DD
-        except (ValueError, TypeError):
-            upload_date_formatted = upload_date_str # Keep original if parsing fails
-
-    # --- Prepare Caption ---
-    caption = f"**{title}**\n\n"
-    if is_playlist:
-        caption += f"🔢 **نوع المحتوى:** قائمة تشغيل ({item_count} مقطع)\n"
-    else:
-         caption += f"⏱️ **المدة:** {duration_str}\n"
-    caption += f"📺 **القناة:** {channel_name}\n"
-
-    # Add view count and upload date only if available and not a playlist summary
-    if not is_playlist:
-        if view_count:
-            caption += f"👀 **المشاهدات:** {view_count:,}\n"
-        if upload_date_formatted:
-            caption += f"📅 **تاريخ الرفع:** {upload_date_formatted}\n"
-
-    caption = caption[:800].strip() # Keep caption reasonably short and clean whitespace
-
-    # --- Prepare Media Type Selection Buttons ---
-    media_type_buttons = [
-        [InlineKeyboardButton("صوت 🔉", callback_data="type_audio"), InlineKeyboardButton("فيديو 🎬", callback_data="type_video")],
-        [InlineKeyboardButton("إلغاء ❌", callback_data="type_cancel")]
-    ]
-    markup = InlineKeyboardMarkup(media_type_buttons)
-    ask_text = f"{caption}\n\n🔧 **اختر نوع التحميل:**"
-
-    choice_message = None # Initialize choice_message
-    try:
-        await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO) # Show activity
-        if thumbnail_url:
-            # Send photo with caption first
-            photo_msg = await message.reply_photo(
-                 photo=thumbnail_url,
-                 caption=caption, # Send main caption with photo
-                 quote=True
-            )
-            # Then send the choice text separately, replying to the photo message
-            choice_message = await photo_msg.reply_text(
-                 "🔧 **اختر نوع التحميل:**", # Simpler text for choice prompt
-                 reply_markup=markup,
-                 quote=False # Don't quote the photo message itself
-            )
-            # Try to delete the initial "fetching info..." message silently
-            try: await status_message.delete()
-            except Exception: pass # Ignore if already deleted or other issue
-        else:
-            # If no thumbnail, edit the original status message with the full text and buttons
-            await status_message.edit_text(ask_text, reply_markup=markup, disable_web_page_preview=True)
-            choice_message = status_message # The status message becomes the choice message
-
-    except Exception as e:
-        print(f"ERROR: Error sending photo/caption or editing message: {e}")
-        try:
-            # Fallback: Edit status message or send new if status failed/deleted
-            if status_message and status_message.id: # Check if status_message exists
-                 await status_message.edit_text(ask_text, reply_markup=markup, disable_web_page_preview=True)
-                 choice_message = status_message
-            else: # If status_message is gone, send a new message
-                 choice_message = await message.reply_text(ask_text, reply_markup=markup, disable_web_page_preview=True, quote=True)
-        except MessageIdInvalid:
-             print("WARN: Status message became invalid during fallback.")
-             # Last resort: send a new message
-             choice_message = await message.reply_text(ask_text, reply_markup=markup, disable_web_page_preview=True, quote=True)
-        except Exception as e2:
-             print(f"ERROR: Fallback message sending/editing failed: {e2}")
-             await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
-             # Can't interact, clean up and return
-             if user_id in download_sessions: del download_sessions[user_id]
-             return # Abort if we can't interact
-
-    # --- Save Session ---
-    if choice_message: # Only save session if we successfully sent a choice message
-        download_sessions[user_id] = {
-            'status_message_id': choice_message.id,
-            'initial_text': caption, # Store the base caption text
-            'choice_text': ask_text, # Store the text shown with type buttons
-            'reply_markup': markup, # Store the current markup
-            'url': clean_url, # Store the cleaned URL
-            'info_dict': info_dict, # Store the fetched info
-            'is_playlist': is_playlist,
-            'item_count': item_count,
-            'media_type': None, # To be filled by callback
-            'format_selector': None, # To be filled by callback
-            'last_download_update_time': 0,
-            'last_upload_update_time': 0,
-            'final_title': title, # Store for potential use in upload caption
-            'final_description': info_dict.get('description', ''), # Store description
-            'original_message_id': message.id, # Store original user message ID
-            'original_reply_id': message.reply_to_message_id if message.reply_to_message else message.id # ID to reply to
-        }
-        print(f"DEBUG: Session created for user {user_id}, message {choice_message.id}")
-    else:
-        print(f"ERROR: Could not establish a choice message for user {user_id}. Aborting.")
-        await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
-        # Clean up session data if somehow created
-        if user_id in download_sessions: del download_sessions[user_id]
-
-    await client.send_chat_action(message.chat.id, ChatAction.CANCEL) # Clear "typing..." action
-
-
-# Helper to format duration in HH:MM:SS or MM:SS
-def td_format(seconds):
-    """Formats seconds into a human-readable HH:MM:SS or MM:SS string."""
-    if seconds is None: return "N/A"
-    try:
-        seconds = int(float(seconds)) # Ensure it's an integer
-        if seconds < 0: return "N/A"
-        minutes, seconds = divmod(seconds, 60)
-        hours, minutes = divmod(minutes, 60)
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        else:
-            return f"{minutes:02d}:{seconds:02d}"
-    except (ValueError, TypeError):
-         return "غير معروف"
-
-
-# --- معالج استعلامات ردود الفعل ---
-@bot.on_callback_query()
-async def format_callback(client: Client, callback_query: CallbackQuery):
-    """Handles button presses for type and format selection."""
-    user_id = callback_query.from_user.id
-    message = callback_query.message # The message with the buttons
-    session_data = download_sessions.get(user_id)
-
-    # --- Validation ---
-    if not session_data:
-        try:
-            await callback_query.answer("انتهت صلاحية هذه الجلسة. يرجى إرسال الرابط مرة أخرى.", show_alert=True)
-            try: await message.delete() # Clean up old buttons
-            except: pass
-        except Exception as e: print(f"Error answering/deleting expired callback (no session): {e}")
-        return
-
-    # Check if the callback is for the *current* active message for this user
-    if message.id != session_data.get('status_message_id'):
-        try:
-            await callback_query.answer("تم بدء عملية أخرى. هذه الأزرار لم تعد صالحة.", show_alert=True)
-            # Optionally delete the now-inactive message
-            try: await message.delete()
-            except: pass
-        except Exception as e: print(f"Error answering/deleting expired callback (wrong message): {e}")
-        return
-
-    callback_data = callback_query.data
-    info_dict = session_data.get('info_dict', {}) # Should exist if session exists
-    url = session_data['url']
-
-    # --- Cancel Button ---
-    if callback_data == "type_cancel" or callback_data == "format_cancel":
-        print(f"DEBUG: User {user_id} cancelled operation.")
-        try:
-             # Edit the message to show cancellation
-             await message.edit_text("❌ تم إلغاء العملية بناءً على طلبك.")
-             # Delete after a short delay
-             await asyncio.sleep(5)
-             await message.delete()
-        except MessageIdInvalid: pass # Message already gone
-        except MessageNotModified: pass # Already cancelled
-        except Exception as e: print(f"Error editing/deleting cancel message: {e}")
-        finally:
-            # Always clean up session on cancel
-            if user_id in download_sessions: del download_sessions[user_id]
-            await callback_query.answer("تم الإلغاء")
-        return
-
-    # --- Back Button (from format selection to type selection) ---
-    if callback_data == "format_back_to_type":
-         print(f"DEBUG: User {user_id} pressed Back.")
-         try:
-             # Restore the media type selection prompt
-             media_type_buttons = [
-                 [InlineKeyboardButton("صوت 🔉", callback_data="type_audio"), InlineKeyboardButton("فيديو 🎬", callback_data="type_video")],
-                 [InlineKeyboardButton("إلغاء ❌", callback_data="type_cancel")]
-             ]
-             markup = InlineKeyboardMarkup(media_type_buttons)
-             await message.edit_text(session_data['choice_text'], reply_markup=markup)
-             session_data['reply_markup'] = markup # Update session markup
-             session_data['media_type'] = None # Reset chosen media type
-             session_data['format_selector'] = None # Reset format selector
-             await callback_query.answer("الرجاء اختيار النوع مجددًا")
-         except MessageNotModified: await callback_query.answer()
-         except MessageIdInvalid:
-              print("WARN: Message disappeared before Back could be processed.")
-              if user_id in download_sessions: del download_sessions[user_id] # Session invalid now
-         except Exception as e:
-              print(f"Error handling Back button: {e}")
-              await callback_query.answer("حدث خطأ أثناء العودة.", show_alert=True)
-         return
-
-    # --- Handle Media Type Selection ---
-    if callback_data.startswith("type_"):
-        media_type = callback_data.split("_")[1] # audio or video
-        session_data['media_type'] = media_type
-        print(f"DEBUG: User {user_id} selected type: {media_type}")
-        await callback_query.answer(f"تم اختيار {media_type}. جاري عرض الجودات المتاحة...")
-
-        # Generate format buttons based on the selected type
-        reply_markup, format_prompt_text = categorize_and_prepare_formats(info_dict, media_type)
-
-        if reply_markup:
-            session_data['format_prompt_text'] = format_prompt_text # Store the text for format buttons
-            session_data['reply_markup'] = reply_markup # Update markup in session
-            try:
-                 await message.edit_text(format_prompt_text, reply_markup=reply_markup)
-            except MessageNotModified: await callback_query.answer() # Already showing correct formats
-            except MessageIdInvalid:
-                 print(f"WARN: Message {message.id} became invalid before showing formats.")
-                 if user_id in download_sessions: del download_sessions[user_id] # Session invalid
-            except Exception as e:
-                print(f"Error editing message for format selection: {e}")
-                await message.edit_text("⚠️ حدث خطأ أثناء عرض الجودات المتاحة.")
-                # Clean up session on error
-                if user_id in download_sessions: del download_sessions[user_id]
-        else:
-            # If categorize_and_prepare_formats returned None (no formats found)
-            await message.edit_text(f"❌ لم يتم العثور على صيغ **{media_type}** متاحة لهذا الرابط.\nقد يكون الفيديو غير متاح بهذه الصيغة أو حدث خطأ.")
-            # Clean up session
-            if user_id in download_sessions: del download_sessions[user_id]
-        return # End processing for type selection
-
-    # --- Handle Format Selection ---
-    if callback_data.startswith("format_"):
-        format_selection = callback_data.split("_", 2)[-1] # e.g., "video_low" -> "low", "audio_best" -> "best", "audio_140" -> "140"
-        media_type = session_data.get('media_type')
-
-        # Ensure media_type was selected previously
-        if not media_type:
-             await callback_query.answer("⚠️ خطأ: لم يتم تحديد نوع الوسائط (فيديو/صوت) أولاً.", show_alert=True)
-             # Try to reset to type selection
-             try:
-                 media_type_buttons = [
-                     [InlineKeyboardButton("صوت 🔉", callback_data="type_audio"), InlineKeyboardButton("فيديو 🎬", callback_data="type_video")],
-                     [InlineKeyboardButton("إلغاء ❌", callback_data="type_cancel")]
-                 ]
-                 markup = InlineKeyboardMarkup(media_type_buttons)
-                 await message.edit_text(session_data['choice_text'], reply_markup=markup)
-                 session_data['reply_markup'] = markup
-             except Exception: pass # Ignore if reset fails
-             return
-
-        format_selector = None
-        quality_name = f"{media_type} {format_selection}" # Default name
-
-        # Determine the yt-dlp format selector string
-        if media_type == 'video':
-            if format_selection == "low":
-                # Prefer combined mp4 <= 480p, fallback best video+audio <= 480p, fallback best anything <= 480p
-                format_selector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]"
-                quality_name = "فيديو ضعيف (<=480p)"
-            elif format_selection == "medium":
-                # Prefer combined mp4 = 720p, fallback best video+audio = 720p, fallback best anything <= 720p
-                format_selector = "bestvideo[height=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=720]+bestaudio/best[height<=720]"
-                quality_name = "فيديو متوسط (720p)"
-            elif format_selection == "high":
-                 # Prefer combined mp4 >= 1080p, fallback best video+audio >= 1080p, fallback best anything >= 1080p, then best overall
-                format_selector = "bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1080]+bestaudio/best[height>=1080]/best"
-                quality_name = "فيديو عالي (>=1080p)"
-            elif format_selection == "best": # Fallback if tier buttons failed
-                 format_selector = "bv[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv+ba/b" # Prioritize mp4 combined, then best combined, then best overall
-                 quality_name = "أفضل فيديو متاح"
-            else:
-                await callback_query.answer("⚠️ جودة فيديو غير معروفة.", show_alert=True)
-                return
-            print(f"DEBUG: User {user_id} selected video format '{format_selection}'. Selector: {format_selector}")
-
-        elif media_type == 'audio':
-            if format_selection == "best":
-                # Let yt-dlp choose the best audio-only stream, fallback to best audio in combined
-                format_selector = "bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio/best[acodec!=none]"
-                quality_name = "أفضل جودة صوت"
-            else:
-                # Specific audio format ID was selected (e.g., "140")
-                format_selector = format_selection # Use the format ID directly
-                # Try to find the label for the answer message
-                found_fmt = next((f for f in info_dict.get('formats', []) if f.get('format_id') == format_selection), None)
-                if found_fmt:
-                     abr = found_fmt.get('abr')
-                     acodec = found_fmt.get('acodec', '').replace('mp4a.40.2', 'aac')
-                     ext = found_fmt.get('ext')
-                     quality_name = f"{acodec} (~{abr:.0f}kbps {ext})" if abr else f"{acodec} ({ext})"
-                else:
-                     quality_name = f"صيغة صوت {format_selection}"
-            print(f"DEBUG: User {user_id} selected audio format '{format_selection}'. Selector: {format_selector}")
-
-        else:
-            await callback_query.answer("⚠️ نوع وسائط غير صالح.", show_alert=True)
-            return
-
-        # Store the chosen selector
-        session_data['format_selector'] = format_selector
-
-        # Acknowledge selection and update message
-        await callback_query.answer(f"⏳ جاري بدء تحميل {quality_name}...")
-        try:
-            # Edit message to show "Preparing download..." and remove buttons
-            prep_text = f"{session_data['initial_text']}\n\n**⏳ جارٍ التحضير للتحميل...**\n({quality_name})"
-            await message.edit_text(prep_text, reply_markup=None)
-            session_data['reply_markup'] = None # Clear buttons in session
-            session_data['initial_text'] = prep_text # Update base text for progress hook
-        except MessageIdInvalid:
-            print(f"WARN: Message {message.id} was deleted before download could start.")
-            if user_id in download_sessions: del download_sessions[user_id]
-            return
-        except MessageNotModified: pass # Already showing preparing text
-        except Exception as e:
-            print(f"Error editing message before download: {e}")
-            # Continue anyway, but log the error
-
-        # --- Start Download in Thread ---
-        download_task = asyncio.create_task(
-            asyncio.to_thread(
-                download_youtube_content,
-                url, message, format_selector, user_id, media_type
-            )
+        text = "🔉 اختر جودة الصوت المطلوبة:"
+        audio_formats = sorted(
+            [f for f in formats if f.get('acodec') != 'none' and f.get('vcodec') == 'none'],
+            key=lambda x: x.get('abr', 0), reverse=True
         )
+        # Fallback: include combined if no audio-only
+        if not audio_formats:
+            audio_formats = sorted(
+                [f for f in formats if f.get('acodec') != 'none'],
+                key=lambda x: x.get('abr', 0), reverse=True
+            )
 
-        try:
-            # Wait for the download function to complete
-            video_files, error_message, final_title, final_description = await download_task
+        if not audio_formats: return "لم يتم العثور على صيغ صوتية.", None
 
-            # Update session with potentially refined title/description from download function
-            session_data['final_title'] = final_title
-            session_data['final_description'] = final_description
+        buttons.append([InlineKeyboardButton("أفضل جودة صوت 🏆 (تلقائي)", callback_data="format_audio_best")])
+        added_labels = set()
+        count = 0
+        for f in audio_formats:
+            if count >= 5: break # Limit options
+            fid = f.get('format_id')
+            if not fid: continue
+            abr = f.get('abr')
+            codec = f.get('acodec','').replace('mp4a.40.2', 'aac')
+            ext = f.get('ext')
+            size = format_bytes(f.get('filesize') or f.get('filesize_approx'))
+            label = f"~{abr:.0f}k {codec} ({ext}) {f'({size})' if size != 'N/A' else ''}" if abr else f"{codec} ({ext}) {f'({size})' if size != 'N/A' else ''}"
+            if label not in added_labels:
+                 buttons.append([InlineKeyboardButton(label, callback_data=f"format_audio_{fid}")])
+                 added_labels.add(label)
+                 count += 1
 
-        except Exception as e:
-             # This catches errors within the download_youtube_content *itself*
-             # yt-dlp DownloadErrors are caught *inside* download_youtube_content
-             print(f"FATAL ERROR: Exception during download thread execution: {type(e).__name__}: {e}")
-             import traceback
-             traceback.print_exc()
-             video_files = []
-             error_message = f"حدث خطأ فادح وغير متوقع أثناء عملية التحميل: {e}"
+    if not buttons:
+        return f"لم يتم العثور على صيغ مناسبة لـ {media_type}.", None
 
-        # --- Handle Download Result ---
-        if error_message:
-            error_display_text = f"❌ حدث خطأ أثناء التنزيل:\n\n`{error_message}`"
-            try:
-                await message.edit_text(error_display_text)
-                # Keep error message for a bit longer
-                await asyncio.sleep(15)
-                await message.delete()
-            except MessageIdInvalid: pass # Message already gone
-            except MessageNotModified: pass # Already showing error
-            except Exception as e:
-                 print(f"Error displaying/deleting download error message: {e}")
-                 # Try sending as new message if edit failed
-                 try: await client.send_message(message.chat.id, error_display_text, reply_to_message_id=session_data.get('original_reply_id'))
-                 except Exception as e2: print(f"Failed to send error message as new: {e2}")
-            finally:
-                 if user_id in download_sessions: del download_sessions[user_id] # Clean up session
-            return # Stop processing
+    buttons.append([InlineKeyboardButton("رجوع ↩️", callback_data="back_to_type"), InlineKeyboardButton("إلغاء ❌", callback_data="cancel_session")])
+    markup = InlineKeyboardMarkup(buttons)
+    return text, markup
 
-        if not video_files:
-             error_display_text = "❌ فشل التحميل ولم يتم العثور على أي ملفات صالحة."
-             try:
-                 await message.edit_text(error_display_text)
-                 await asyncio.sleep(10)
-                 await message.delete()
-             except MessageIdInvalid: pass
-             except MessageNotModified: pass
-             except Exception as e:
-                 print(f"Error displaying/deleting no-files error message: {e}")
-                 try: await client.send_message(message.chat.id, error_display_text, reply_to_message_id=session_data.get('original_reply_id'))
-                 except Exception as e2: print(f"Failed to send no-files error message as new: {e2}")
-             finally:
-                 if user_id in download_sessions: del download_sessions[user_id] # Clean up session
-             return # Stop processing
+def get_format_selector(callback_data: str) -> (str | None, str | None):
+    """Determines the yt-dlp format selector string based on callback data."""
+    parts = callback_data.split('_', 2)
+    if len(parts) < 3: return None, None # Invalid format
 
-        # --- Uploading Process ---
-        session_data['video_files'] = video_files
-        total_files_count = len(video_files)
-        upload_errors = []
-        # Update initial text for upload progress
-        session_data['initial_text'] = f"✅ **{session_data.get('final_title', 'الملف')}**\n   - اكتمل التحميل، جارٍ الرفع..."
+    f_type, media, selection = parts # e.g., format, video, high OR format, audio, best
 
-        # Reply to the original user message or its reply
-        reply_to_id = session_data.get('original_reply_id')
+    if media == 'video':
+        tier = selection
+        if tier == "low": return "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480]", "video"
+        if tier == "medium": return "bestvideo[height=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height=720]+bestaudio/best[height=720]/bestvideo[height<=720]+bestaudio/best[height<=720]", "video"
+        if tier == "high": return "bestvideo[height>=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height>=1080]+bestaudio/best[height>=1080]/bestvideo[height=720]+bestaudio/best[height=720]/best", "video"
+    elif media == 'audio':
+        if selection == "best": return "bestaudio/best", "audio"
+        # Assume selection is a format_id
+        return selection, "audio"
 
-        for i, file_path in enumerate(video_files):
-            if not os.path.exists(file_path):
-                print(f"ERROR: File does not exist before upload attempt: {file_path}")
-                upload_errors.append(f"الملف المجدول `{os.path.basename(file_path)}` غير موجود على القرص.")
-                continue
+    return None, None # Unknown type
 
-            file_size = os.path.getsize(file_path)
-            file_name_display = os.path.basename(file_path)
-            print(f"DEBUG: Attempting to upload file {i+1}/{total_files_count}: {file_path} (Size: {format_bytes(file_size)})")
-
-            # --- Telegram File Size Limit Check ---
-            TG_MAX_SIZE = 2 * 1024 * 1024 * 1024 # 2GB
-            if file_size > TG_MAX_SIZE:
-                error_txt = f"❌ حجم الملف `{file_name_display}` ({format_bytes(file_size)}) يتجاوز حد تيليجرام (2GB) ولا يمكن رفعه."
-                print(f"ERROR: {error_txt}")
-                try:
-                    # Send error message about size limit
-                    await client.send_message(message.chat.id, error_txt, reply_to_message_id=reply_to_id)
-                except Exception as send_err:
-                    print(f"Error sending size limit message: {send_err}")
-                upload_errors.append(f"الملف `{file_name_display}` كبير جدًا (> 2GB).")
-                # Clean up the oversized file
-                try:
-                    os.remove(file_path)
-                    print(f"DEBUG: Removed oversized file: {file_path}")
-                except OSError as e:
-                    print(f"Error removing oversized file {file_path}: {e}")
-                continue # Skip to the next file
-
-            # --- Prepare Metadata (Duration, Dimensions, Thumbnail) ---
-            thumb_path = None; duration = 0; width = 0; height = 0
-            if FFMPEG_AVAILABLE: # Only attempt if ffmpeg-python is installed
-                try:
-                    print(f"DEBUG: Probing file for metadata using ffmpeg: {file_path}")
-                    probe = ffmpeg.probe(file_path)
-                    format_info = probe.get('format', {})
-                    # Get duration from format first, fallback to stream
-                    duration = int(float(format_info.get('duration', 0)))
-
-                    # Find the primary video or audio stream
-                    stream_info = next((s for s in probe.get('streams', []) if s.get('codec_type') == ('video' if media_type == 'video' else 'audio')), None)
-
-                    if stream_info:
-                         # Prefer stream duration if format duration is zero or missing
-                         stream_duration_str = stream_info.get('duration')
-                         if stream_duration_str and (duration == 0 or duration is None):
-                              try: duration = int(float(stream_duration_str))
-                              except (ValueError, TypeError): pass # Ignore if stream duration isn't valid
-
-                         if media_type == 'video':
-                             width = int(stream_info.get('width', 0))
-                             height = int(stream_info.get('height', 0))
-                             # Generate thumbnail near the start (e.g., 10% in or 1s min)
-                             thumb_ss = max(1, int(duration * 0.1)) if duration > 0 else 1
-                             thumb_path = f"{os.path.splitext(file_path)[0]}_thumb.jpg"
-                             try:
-                                 print(f"DEBUG: Generating thumbnail for {file_path} at {thumb_ss}s")
-                                 (ffmpeg
-                                  .input(file_path, ss=thumb_ss)
-                                  .output(thumb_path, vframes=1, loglevel="error") # Quieter ffmpeg logs
-                                  .overwrite_output()
-                                  .run(capture_stdout=True, capture_stderr=True)) # Capture output
-
-                                 # Check if thumbnail was actually created and has size
-                                 if not os.path.exists(thumb_path) or os.path.getsize(thumb_path) == 0:
-                                     print(f"WARN: Thumbnail generation resulted in empty file for {file_path}.")
-                                     thumb_path = None
-                                 else:
-                                     print(f"DEBUG: ffmpeg thumbnail generated successfully: {thumb_path}")
-                             except ffmpeg.Error as ff_err:
-                                 # Log stderr for debugging if thumbnail fails
-                                 print(f"WARN: ffmpeg thumbnail generation failed for {file_path}: {ff_err.stderr.decode()}")
-                                 thumb_path = None
-                             except Exception as thumb_err:
-                                 print(f"ERROR: Unexpected error during thumbnail generation: {thumb_err}")
-                                 thumb_path = None
-                         elif media_type == 'audio':
-                              # Duration already extracted, no width/height needed
-                              pass
-                    else:
-                         print(f"WARN: Could not find primary {media_type} stream in probe for {file_path}")
-
-                except ffmpeg.Error as ff_err:
-                    # Log probe errors
-                    print(f"WARN: ffprobe error for {file_path}: {ff_err.stderr.decode()}")
-                except Exception as meta_err:
-                    # Catch other unexpected errors during metadata extraction
-                    print(f"WARN: General metadata extraction error for {file_path}: {meta_err}")
-            else: # ffmpeg-python not available
-                 print("DEBUG: ffmpeg-python not available, using basic metadata from yt-dlp info.")
-                 # Fallback to metadata from initial info_dict if ffmpeg failed/unavailable
-                 stored_info = session_data.get('info_dict', {})
-                 # Find corresponding entry if playlist
-                 entry_info = stored_info
-                 if session_data.get('is_playlist'):
-                      # Try matching by filename (less reliable) or index if possible
-                      # This part is tricky without a clear link between file and entry
-                      entry_info = (stored_info.get('entries') or [])[i] if i < len(stored_info.get('entries') or []) else stored_info
-
-                 if duration == 0: duration = int(float(entry_info.get('duration', 0)))
-                 if media_type == 'video':
-                     if width == 0: width = int(entry_info.get('width', 0))
-                     if height == 0: height = int(entry_info.get('height', 0))
-
-            # Basic validation for metadata
-            duration = max(0, duration if duration else 0)
-            width = max(0, width if width else 0)
-            height = max(0, height if height else 0)
-
-            # --- Prepare Upload Caption ---
-            current_title = session_data.get('final_title', os.path.splitext(file_name_display)[0]) # Use filename base as fallback title
-            # Add playlist numbering if needed
-            playlist_caption_part = f" | جزء {i+1}/{total_files_count}" if total_files_count > 1 else ""
-            # Construct caption - Title | Part X/Y \n\n Bot Username
-            caption = f"**{current_title}{playlist_caption_part}**\n\n"
-            # Add description only for single files, keep it short
-            # current_description = session_data.get('final_description', '')
-            # if total_files_count == 1 and current_description:
-            #      caption += f"{current_description[:200]}{'...' if len(current_description) > 200 else ''}\n\n"
-
-            caption += f"تم التحميل بواسطة @{client.me.username}"
-            caption = caption[:1020] # Ensure caption fits within Telegram limits
-
-            # --- Send File ---
-            last_exception = None # To store the last exception for potential document fallback
-            try:
-                 # Use send_chat_action for visual feedback during upload preparation
-                 await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO if media_type == 'video' else ChatAction.UPLOAD_AUDIO)
-
-                 if media_type == 'video':
-                     await client.send_video(
-                         chat_id=message.chat.id,
-                         video=file_path,
-                         caption=caption,
-                         thumb=thumb_path, # Will be None if generation failed
-                         duration=duration,
-                         width=width,
-                         height=height,
-                         supports_streaming=True, # Enable streaming if possible
-                         progress=upload_progress_callback,
-                         progress_args=(message, user_id, file_path, i + 1, total_files_count), # Pass necessary args
-                         reply_to_message_id=reply_to_id
-                     )
-                 elif media_type == 'audio':
-                     # Extract title/performer for audio metadata
-                     # Use sanitized title as base, limit length
-                     extracted_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', session_data.get('final_title', 'Audio'))[:60]
-                     # Use channel/uploader name as performer
-                     performer = session_data.get('info_dict', {}).get('channel', session_data.get('info_dict', {}).get('uploader', 'Unknown'))[:60]
-
-                     await client.send_audio(
-                         chat_id=message.chat.id,
-                         audio=file_path,
-                         caption=caption,
-                         title=extracted_title,
-                         performer=performer,
-                         thumb=thumb_path, # Use generated thumb if available
-                         duration=duration,
-                         progress=upload_progress_callback,
-                         progress_args=(message, user_id, file_path, i + 1, total_files_count),
-                         reply_to_message_id=reply_to_id
-                     )
-                 print(f"DEBUG: Successfully uploaded {file_path} as {media_type}")
-                 last_exception = None # Reset exception on success
-
-            except FloodWait as fw:
-                 print(f"FloodWait during upload: Waiting {fw.value}s...")
-                 await client.send_chat_action(message.chat.id, ChatAction.CANCEL) # Clear action during wait
-                 await asyncio.sleep(fw.value + 1)
-                 # Retry logic simplified: just try again once after the wait
-                 try:
-                      # Resend chat action before retry
-                      await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO if media_type == 'video' else ChatAction.UPLOAD_AUDIO)
-                      if media_type == 'video':
-                          await client.send_video(message.chat.id, video=file_path, caption=caption, thumb=thumb_path, duration=duration, width=width, height=height, supports_streaming=True, progress=upload_progress_callback, progress_args=(message, user_id, file_path, i + 1, total_files_count), reply_to_message_id=reply_to_id)
-                      else:
-                          await client.send_audio(message.chat.id, audio=file_path, caption=caption, title=extracted_title, performer=performer, thumb=thumb_path, duration=duration, progress=upload_progress_callback, progress_args=(message, user_id, file_path, i + 1, total_files_count), reply_to_message_id=reply_to_id)
-                      print(f"DEBUG: Successfully uploaded {file_path} on retry.")
-                      last_exception = None
-                 except Exception as retry_err:
-                      print(f"ERROR: Upload retry failed for {file_path}: {retry_err}")
-                      upload_errors.append(f"فشل إرسال `{file_name_display}` بعد انتظار FloodWait.")
-                      last_exception = retry_err # Store the retry error
-            except Exception as upload_err:
-                print(f"ERROR: Failed to send {file_path} as {media_type}: {upload_err}")
-                upload_errors.append(f"فشل إرسال `{file_name_display}` كملف {media_type}.")
-                last_exception = upload_err # Store the error
-
-            # --- Fallback to Document ---
-            # If sending as Video/Audio failed (last_exception is not None)
-            # Or if metadata was missing (optional, could force document if duration/dims are zero)
-            force_document = (width == 0 or height == 0) and media_type == 'video' # Example condition
-            if last_exception: # or force_document:
-                 print(f"WARN: Falling back to sending {file_path} as document. Reason: {last_exception or 'Forced'}")
-                 try:
-                     # Let user know we're trying document
-                     doc_fallback_text = f"{session_data['initial_text']}\n\n⚠️ تعذر الإرسال كـ{media_type}، جارٍ المحاولة كمستند..."
-                     await client.edit_message_text(message.chat.id, session_data['status_message_id'], doc_fallback_text)
-
-                     await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_DOCUMENT)
-                     await client.send_document(
-                         chat_id=message.chat.id,
-                         document=file_path,
-                         caption=caption, # Use the same caption
-                         thumb=thumb_path, # Still try to use thumb
-                         force_document=True, # Explicitly send as document
-                         progress=upload_progress_callback,
-                         progress_args=(message, user_id, file_path, i + 1, total_files_count),
-                         reply_to_message_id=reply_to_id
-                     )
-                     print(f"DEBUG: Successfully uploaded {file_path} as document (fallback).")
-                     # Remove the specific error if document fallback succeeded
-                     # Find and remove the error related to this file
-                     error_to_remove = f"فشل إرسال `{file_name_display}` كملف {media_type}."
-                     if error_to_remove in upload_errors:
-                          upload_errors.remove(error_to_remove)
-                          upload_errors.append(f"تم إرسال `{file_name_display}` كمستند بدلاً من {media_type}.")
-
-
-                 except FloodWait as fw_doc:
-                      print(f"FloodWait during document fallback: Waiting {fw_doc.value}s...")
-                      await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
-                      await asyncio.sleep(fw_doc.value + 1)
-                      # Simple retry for document
-                      try:
-                         await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_DOCUMENT)
-                         await client.send_document(message.chat.id, document=file_path, caption=caption, thumb=thumb_path, force_document=True, progress=upload_progress_callback, progress_args=(message, user_id, file_path, i + 1, total_files_count), reply_to_message_id=reply_to_id)
-                         print(f"DEBUG: Successfully uploaded {file_path} as document on retry.")
-                         error_to_remove = f"فشل إرسال `{file_name_display}` كملف {media_type}."
-                         if error_to_remove in upload_errors: upload_errors.remove(error_to_remove)
-                         upload_errors.append(f"تم إرسال `{file_name_display}` كمستند بدلاً من {media_type}.")
-                      except Exception as doc_retry_err:
-                         print(f"ERROR: Document fallback retry failed for {file_path}: {doc_retry_err}")
-                         if error_to_remove not in upload_errors: # Ensure original error is logged if fallback fails completely
-                             upload_errors.append(error_to_remove)
-                         upload_errors.append(f"فشل إرسال `{file_name_display}` كمستند أيضًا.")
-
-                 except Exception as doc_err:
-                     print(f"ERROR: Failed to send {file_path} as Document fallback: {doc_err}")
-                     # Ensure the original error remains logged if fallback also fails
-                     if error_to_remove not in upload_errors:
-                         upload_errors.append(error_to_remove)
-                     upload_errors.append(f"فشل إرسال `{file_name_display}` كمستند أيضًا.")
-
-            # --- Cleanup After Each File Upload Attempt ---
-            finally:
-                 # Clear chat action after each attempt
-                 try: await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
-                 except: pass
-                 # Remove the local file
-                 if os.path.exists(file_path):
-                     try:
-                         os.remove(file_path)
-                         print(f"DEBUG: Removed local file: {file_path}")
-                     except OSError as e:
-                         print(f"Error removing uploaded file {file_path}: {e}")
-                 # Remove the local thumbnail
-                 if thumb_path and os.path.exists(thumb_path):
-                     try:
-                         os.remove(thumb_path)
-                         print(f"DEBUG: Removed local thumbnail: {thumb_path}")
-                     except OSError as e:
-                         print(f"Error removing thumbnail file {thumb_path}: {e}")
-
-        # --- Final Status Update ---
-        final_status_text = ""
-        status_message_id = session_data.get('status_message_id')
-
-        if upload_errors:
-            final_status_text = f"⚠️ اكتملت العملية مع {len(upload_errors)} خطأ:\n\n- " + "\n- ".join(upload_errors)
-            final_status_text = final_status_text[:4000] # Limit length
-        else:
-            final_status_text = f"✅ تم رفع جميع الملفات ({total_files_count}) بنجاح!"
-
-        print(f"DEBUG: Final status for user {user_id}: {final_status_text}")
-
-        if status_message_id: # If status message still exists
-            try:
-                # Try to edit the status message with the final result
-                await client.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=status_message_id,
-                    text=final_status_text
-                )
-                # Optionally delete the status message after a delay
-                await asyncio.sleep(15 if upload_errors else 10) # Keep errors longer
-                await client.delete_messages(message.chat.id, status_message_id)
-                session_data['status_message_id'] = None # Mark as deleted
-            except (MessageIdInvalid, MessageNotModified): # Message might be gone or unchanged
-                print("WARN: Final status message was gone or unchanged before final edit/delete.")
-                # Send as new message if editing failed
-                try:
-                     await client.send_message(message.chat.id, final_status_text, reply_to_message_id=reply_to_id)
-                except Exception as final_send_err:
-                     print(f"Error sending final status as new message: {final_send_err}")
-            except Exception as e:
-                print(f"Error editing/deleting final status message: {e}")
-                # Send as new message if editing failed
-                try:
-                    await client.send_message(message.chat.id, final_status_text, reply_to_message_id=reply_to_id)
-                except Exception as final_send_err:
-                    print(f"Error sending final status as new message after edit error: {final_send_err}")
-        else: # If status message was already gone
-             print("DEBUG: Status message ID was None, sending final status as new message.")
-             try:
-                 await client.send_message(message.chat.id, final_status_text, reply_to_message_id=reply_to_id)
-             except Exception as final_send_err:
-                 print(f"Error sending final status as new message (ID was None): {final_send_err}")
-
-
-        # Clean up session data for the user
-        if user_id in download_sessions:
-            del download_sessions[user_id]
-            print(f"DEBUG: Session closed for user {user_id}.")
-
-    # --- Fallback Acknowledge ---
-    # Acknowledge other button presses silently if not handled above
-    # (Shouldn't happen with current logic, but good practice)
-    else:
-         try: await callback_query.answer()
-         except Exception: pass
-
-
-# --- دالة عرض تقدم الرفع ---
-async def upload_progress_callback(current, total, message, user_id, file_path, file_index, total_files):
-    """Updates the status message with upload progress."""
-    session_data = download_sessions.get(user_id)
-    status_message_id = session_data.get('status_message_id') if session_data else None
-
-    # Exit if session is gone or message ID is unknown
-    if not session_data or not status_message_id:
-        # print(f"DEBUG: Upload progress skipped for user {user_id} - no session or message ID.")
-        return
+async def upload_progress_hook(current, total, client, status_message, session_data, file_info):
+    """Async progress hook for Telegram uploads."""
+    user_id = session_data.get('user_id')
+    if not user_id: return
 
     now = time.time()
     last_update = session_data.get('last_upload_update_time', 0)
-    # Throttle updates to avoid FloodWait
-    if now - last_update < 1.5: # 1.5 second throttle
-        return
+    if now - last_update < 1.5: return
     session_data['last_upload_update_time'] = now
 
     try:
         percentage = current / total if total > 0 else 0
-        progress_bar_str = progress_bar_generator(percentage)
-        file_name_display = os.path.basename(file_path)
-        current_size_str = format_bytes(current)
-        total_size_str = format_bytes(total)
-        playlist_info = f" (ملف {file_index}/{total_files})" if total_files > 1 else ""
+        base_caption = session_data.get('base_caption', '...') # Should be updated after download
+        fname = file_info.get('name', 'file')[:50]
+        findex = file_info.get('index', 0)
+        ftotal = file_info.get('total', 1)
+        pl_info = f" (ملف {findex}/{ftotal})" if ftotal > 1 else ""
 
-        # Use the initial text stored in the session which should indicate download complete
-        base_text = session_data.get('initial_text', '✅ اكتمل التحميل.')
-
-        progress_text = (
-            f"{base_text}\n\n"
-            f"**⬆️ جاري الرفع{playlist_info}:**\n"
-            # Limit filename display length in progress
-            f"`{file_name_display[:45]}{'...' if len(file_name_display)>45 else ''}`\n"
-            f" {progress_bar_str} ({percentage*100:.1f}%)\n"
-            f" {current_size_str} / {total_size_str}"
+        text = (
+            f"{base_caption}\n\n"
+            f"**⬆️ جاري الرفع{pl_info}:**\n"
+            f"`{fname}...`\n"
+            f" {progress_bar_generator(percentage)} ({percentage*100:.1f}%)\n"
+            f" {format_bytes(current)} / {format_bytes(total)}"
         )
+        await edit_status_message(client, session_data, text)
 
-        # Edit the status message
-        await bot.edit_message_text(
-            chat_id=message.chat.id,
-            message_id=status_message_id,
-            text=progress_text
-        )
-    except MessageNotModified:
-        # print("DEBUG: Message not modified (upload progress)")
-        pass
-    except FloodWait as fw:
-        print(f"FloodWait in upload_progress: Waiting {fw.value}s...")
-        await asyncio.sleep(fw.value + 1) # Wait and potentially retry implicitly on next callback
-    except MessageIdInvalid:
-        print(f"WARN: Upload progress - Status message ID {status_message_id} invalid. Clearing from session.")
-        if user_id in download_sessions:
-            download_sessions[user_id]['status_message_id'] = None # Stop trying to edit
     except Exception as e:
-        print(f"ERROR in upload_progress_callback: {type(e).__name__}: {e}")
-        if user_id in download_sessions:
-            download_sessions[user_id]['status_message_id'] = None # Stop trying to edit
+        LOGGER.error(f"Error in upload progress hook for user {user_id}: {e}", exc_info=True)
 
+async def extract_metadata_and_thumb(file_path: str, media_type: str, fallback_info: dict) -> (dict, str | None):
+    """Extracts metadata (duration, w, h) and thumbnail using ffmpeg."""
+    metadata = {'duration': 0, 'width': 0, 'height': 0}
+    thumb_path = None
 
-# --- تشغيل البوت ---
-if __name__ == "__main__":
-    print("INFO: Initializing bot...")
-    # Test loading cookies on startup
-    print("INFO: Testing cookie loading...")
-    initial_cookies = load_cookies()
-    if initial_cookies:
-        print(f"INFO: Cookies loaded successfully on startup. Found {len(initial_cookies)} cookies.")
-    else:
-        print("WARN: Could not load cookies on startup or cookie variable is empty.")
-
-    # Test for FFmpeg
-    if FFMPEG_AVAILABLE:
-        print("INFO: ffmpeg-python library is available.")
-    else:
-        print("WARN: ffmpeg-python library not found. Install it (`pip install ffmpeg-python`) for better metadata and thumbnails.")
-
-    print("INFO: Starting bot polling...")
     try:
-        # bot.run() uses asyncio.run() internally
-        bot.run()
-    except ValueError as ve:
-         # Catch the specific error for missing env vars
-         print(f"FATAL ERROR: {ve}")
+        LOGGER.debug(f"Probing metadata for: {file_path}")
+        probe = await asyncio.to_thread(ffmpeg.probe, file_path) # Run blocking probe in thread
+
+        format_info = probe.get('format', {})
+        stream_info = next((s for s in probe.get('streams', []) if s.get('codec_type') == media_type), None)
+
+        # Duration
+        duration_str = format_info.get('duration', stream_info.get('duration') if stream_info else None)
+        if duration_str: metadata['duration'] = int(float(duration_str))
+
+        # Dimensions (Video only)
+        if media_type == 'video' and stream_info:
+            metadata['width'] = int(stream_info.get('width', 0))
+            metadata['height'] = int(stream_info.get('height', 0))
+
+            # Thumbnail Generation
+            if metadata['duration'] > 0:
+                 thumb_path = f"{os.path.splitext(file_path)[0]}_thumb.jpg"
+                 ss_time = metadata['duration'] * 0.1 if metadata['duration'] > 1 else 0.1
+                 try:
+                     LOGGER.debug(f"Generating thumbnail for {file_path} at {ss_time:.2f}s")
+                     process = (
+                         ffmpeg
+                         .input(file_path, ss=ss_time)
+                         .output(thumb_path, vframes=1, loglevel="error")
+                         .overwrite_output()
+                         .run_async(pipe_stdout=True, pipe_stderr=True) # Run async
+                     )
+                     _out, err = await process.communicate() # Wait for completion
+                     if process.returncode != 0:
+                          LOGGER.warning(f"ffmpeg thumbnail failed for {file_path}: {err.decode()}")
+                          thumb_path = None
+                     elif not os.path.exists(thumb_path) or os.path.getsize(thumb_path) == 0:
+                          LOGGER.warning(f"ffmpeg thumbnail generated empty file for {file_path}")
+                          thumb_path = None
+                     else:
+                          LOGGER.debug(f"Thumbnail generated: {thumb_path}")
+                 except ffmpeg.Error as e:
+                     LOGGER.warning(f"ffmpeg error generating thumbnail: {e.stderr.decode()}")
+                     thumb_path = None
+                 except Exception as e:
+                     LOGGER.warning(f"Error generating thumbnail: {e}")
+                     thumb_path = None
+
+    except ImportError:
+        LOGGER.warning("ffmpeg-python not installed. Metadata extraction/thumbnails disabled.")
+    except ffmpeg.Error as e:
+        LOGGER.warning(f"ffprobe failed for {file_path}: {e.stderr.decode()}")
     except Exception as e:
-        print(f"FATAL ERROR: Bot crashed: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        LOGGER.error(f"Error extracting metadata for {file_path}: {e}", exc_info=True)
+
+    # --- Fallback Metadata ---
+    if metadata['duration'] == 0 and fallback_info.get('duration'):
+        metadata['duration'] = int(float(fallback_info['duration']))
+    if media_type == 'video':
+        if metadata['width'] == 0 and fallback_info.get('width'): metadata['width'] = int(fallback_info['width'])
+        if metadata['height'] == 0 and fallback_info.get('height'): metadata['height'] = int(fallback_info['height'])
+        # Fallback thumbnail URL
+        if not thumb_path and fallback_info.get('thumbnail'):
+            thumb_path = fallback_info.get('thumbnail') # Use URL
+            LOGGER.debug("Using fallback thumbnail URL.")
+
+    return metadata, thumb_path
+
+async def upload_file_to_telegram(client: Client, session_data: dict, status_message: Message, file_path: str, file_index: int, total_files: int) -> bool:
+    """Uploads a single file to Telegram, handling progress and errors."""
+    user_id = session_data.get('user_id')
+    chat_id = session_data.get('chat_id')
+    media_type = session_data.get('media_type')
+    fallback_info = session_data.get('info_dict', {})
+    reply_to_id = session_data.get('original_message_id')
+    base_file_name = os.path.basename(file_path)
+
+    LOGGER.info(f"Starting upload for user {user_id}: {base_file_name} ({file_index}/{total_files})")
+
+    # Check size limit
+    file_size = os.path.getsize(file_path)
+    if file_size > MAX_TG_UPLOAD_SIZE:
+        LOGGER.warning(f"File exceeds 2GB limit: {base_file_name} ({format_bytes(file_size)})")
+        await client.send_message(chat_id, f"⚠️ حجم الملف `{base_file_name}` ({format_bytes(file_size)}) يتجاوز حد تيليجرام (2GB). لا يمكن رفعه.", reply_to_message_id=reply_to_id)
+        return False # Indicate failure but allow process to continue
+
+    # Extract Metadata and Thumbnail
+    metadata, thumb_path = await extract_metadata_and_thumb(file_path, media_type, fallback_info)
+
+    # Prepare Caption
+    title = session_data.get('title', 'محتوى يوتيوب')
+    pl_part = f"\nالجزء {file_index}/{total_files}" if total_files > 1 else ""
+    caption = f"**{title}{pl_part}**\n\n"
+    caption += f"تم التحميل بواسطة @{client.me.username}"
+    caption = caption[:1020] # Limit caption length
+
+    # Progress Args
+    file_info = {'name': base_file_name, 'index': file_index, 'total': total_files}
+    progress_args = (client, status_message, session_data, file_info)
+
+    upload_success = False
+    for attempt in range(2): # Allow one retry on generic error
+        try:
+            if media_type == 'video':
+                await client.send_video(
+                    chat_id=chat_id, video=file_path, caption=caption,
+                    duration=metadata['duration'], width=metadata['width'], height=metadata['height'],
+                    thumb=thumb_path, supports_streaming=True,
+                    progress=upload_progress_hook, progress_args=progress_args,
+                    reply_to_message_id=reply_to_id
+                )
+            elif media_type == 'audio':
+                 performer = fallback_info.get('channel') or fallback_info.get('uploader', 'Unknown')
+                 audio_title = os.path.splitext(base_file_name)[0]
+                 await client.send_audio(
+                     chat_id=chat_id, audio=file_path, caption=caption,
+                     title=audio_title[:60], performer=performer[:60],
+                     duration=metadata['duration'], thumb=thumb_path,
+                     progress=upload_progress_hook, progress_args=progress_args,
+                     reply_to_message_id=reply_to_id
+                 )
+            upload_success = True
+            LOGGER.info(f"Upload successful for {base_file_name}")
+            break # Exit retry loop on success
+
+        except FloodWait as fw:
+            LOGGER.warning(f"FloodWait for {fw.value}s during upload of {base_file_name}. Waiting...")
+            await asyncio.sleep(fw.value + 2)
+            # Retry is handled by the loop structure
+        except Exception as e:
+            LOGGER.error(f"Upload attempt {attempt+1} failed for {base_file_name}: {e}", exc_info=True)
+            if attempt == 0:
+                await asyncio.sleep(3) # Wait before retry
+            else: # Last attempt failed
+                 # Try sending as document as a last resort
+                 LOGGER.warning(f"Falling back to sending as document: {base_file_name}")
+                 try:
+                     await client.send_document(
+                         chat_id=chat_id, document=file_path, caption=caption,
+                         thumb=thumb_path, force_document=True,
+                         progress=upload_progress_hook, progress_args=progress_args,
+                         reply_to_message_id=reply_to_id
+                     )
+                     upload_success = True # Consider document send a success
+                     LOGGER.info(f"Sent as document successfully: {base_file_name}")
+                 except Exception as doc_e:
+                     LOGGER.error(f"Failed to send {base_file_name} as document: {doc_e}", exc_info=True)
+
+    # Cleanup local file and thumb (always attempt)
+    try:
+        if os.path.exists(file_path): os.remove(file_path)
+        if thumb_path and os.path.exists(thumb_path) and not thumb_path.startswith('http'):
+            os.remove(thumb_path)
+    except OSError as e:
+        LOGGER.warning(f"Error during file cleanup for {base_file_name}: {e}")
+
+    return upload_success
+
+# --- 5. Pyrogram Bot Setup and Handlers ---
+
+# Initialize the bot client
+app = Client(
+    "URL_Uploader_Bot_Session", # Use a session name
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
+@app.on_message(filters.command(["start", "help"]) & filters.private)
+async def start_handler(client: Client, message: Message):
+    """Handles /start and /help commands."""
+    LOGGER.info(f"User {message.from_user.id} started the bot.")
+    await message.reply_text(
+        "أهلاً بك! 👋\n"
+        "أرسل رابط فيديو أو قائمة تشغيل يوتيوب لتحميله.\n\n"
+        "استخدم الأمر /help لعرض التعليمات.",
+        quote=True,
+        disable_web_page_preview=True
+    )
+
+@app.on_message(filters.command("ping") & filters.private)
+async def ping_handler(client: Client, message: Message):
+    """Simple ping command for testing responsiveness."""
+    LOGGER.info(f"Received /ping from user {message.from_user.id}")
+    start_time = time.time()
+    reply = await message.reply_text("Pong!", quote=True)
+    end_time = time.time()
+    await reply.edit_text(f"Pong! `{(end_time - start_time) * 1000:.2f} ms`")
+
+# Regex for YouTube URLs
+YOUTUBE_URL_REGEX = re.compile(
+    r'(?:https?://)?(?:www\.)?(?:m\.)?(?:youtube(?:-nocookie)?\.com|youtu\.be)/'
+    r'(?:watch\?v=|embed/|v/|shorts/|playlist\?list=|live/|attribution_link\?a=)?'
+    r'([\w-]{11,})(?:\S+)?'
+)
+
+@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "ping"]))
+async def url_handler(client: Client, message: Message):
+    """Handles incoming text messages containing YouTube URLs."""
+    user_id = message.from_user.id
+    url = message.text.strip()
+    match = YOUTUBE_URL_REGEX.match(url)
+
+    if not match:
+        LOGGER.debug(f"Ignoring non-URL message from user {user_id}")
+        # Optionally reply for non-URL messages if desired
+        # await message.reply_text("يرجى إرسال رابط يوتيوب صالح.", quote=True)
+        return
+
+    LOGGER.info(f"Received URL from user {user_id}: {url.split('&')[0]}") # Log cleaned URL
+
+    # Clear previous session if exists
+    if user_id in user_sessions:
+         LOGGER.warning(f"User {user_id} started a new request while previous session existed. Cleaning old one.")
+         await cleanup_session(user_id) # Silently clean old session
+
+    status_message = await message.reply_text("🔍 جاري جلب معلومات الرابط...", quote=True)
+    await client.send_chat_action(message.chat.id, ChatAction.TYPING)
+
+    # Fetch info
+    info_dict = await get_youtube_info(url)
+    await client.send_chat_action(message.chat.id, ChatAction.CANCEL)
+
+    # Handle info fetching errors
+    if 'error' in info_dict:
+        await status_message.edit_text(f"❌ خطأ: {info_dict['error']}")
+        return
+
+    # Create initial selection
+    caption, markup = create_media_type_selection(info_dict)
+    await status_message.edit_text(caption, reply_markup=markup)
+
+    # Store session data
+    session_data = {
+        'user_id': user_id,
+        'chat_id': message.chat.id,
+        'status_message_id': status_message.id,
+        'original_message_id': message.id, # ID of the user's message with the link
+        'url': url,
+        'info_dict': info_dict,
+        'title': info_dict.get('title', 'محتوى يوتيوب'),
+        'media_type': None, # To be set by user
+        'format_selector': None, # To be set
+        'last_interaction_time': time.time(),
+        'base_caption': caption.split('\n\n🔧')[0] # Store the info part of the caption
+    }
+    user_sessions[user_id] = session_data
+    LOGGER.debug(f"Session created for user {user_id}")
+
+
+@app.on_callback_query()
+async def callback_query_handler(client: Client, callback_query: CallbackQuery):
+    """Handles button presses."""
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    message = callback_query.message
+
+    # Check if session exists and is valid
+    session_data = user_sessions.get(user_id)
+    if not session_data or session_data.get('status_message_id') != message.id:
+        await callback_query.answer("انتهت صلاحية هذه الخيارات أو تم بدء عملية أخرى.", show_alert=True)
+        try: await message.edit_reply_markup(reply_markup=None) # Try remove buttons
+        except: pass
+        return
+
+    # Update last interaction time
+    session_data['last_interaction_time'] = time.time()
+    await callback_query.answer() # Acknowledge the button press immediately
+
+    # --- Handle Callbacks ---
+
+    if data == "cancel_session":
+        LOGGER.info(f"Session cancelled by user {user_id}")
+        await cleanup_session(user_id, message, "❌ تم إلغاء العملية.")
+        return
+
+    elif data == "back_to_type":
+        LOGGER.debug(f"User {user_id} going back to type selection.")
+        caption, markup = create_media_type_selection(session_data['info_dict'])
+        await edit_status_message(client, session_data, caption, markup)
+        return
+
+    elif data.startswith("type_"):
+        media_type = data.split("_")[1] # audio or video
+        session_data['media_type'] = media_type
+        LOGGER.info(f"User {user_id} selected type: {media_type}")
+        text, markup = create_format_selection(session_data['info_dict'], media_type)
+        if markup:
+            await edit_status_message(client, session_data, text, markup)
+        else:
+            await edit_status_message(client, session_data, f"⚠️ {text}", None) # Show error if no formats
+            await cleanup_session(user_id) # Clean session if no formats found
+        return
+
+    elif data.startswith("format_"):
+        format_selector, selected_media_type = get_format_selector(data)
+        if not format_selector or not selected_media_type:
+             LOGGER.warning(f"Invalid format callback data from user {user_id}: {data}")
+             await edit_status_message(client, session_data, "حدث خطأ في تحديد الصيغة.", None)
+             await cleanup_session(user_id)
+             return
+
+        # Ensure media type matches (should always unless logic error)
+        if selected_media_type != session_data.get('media_type'):
+             LOGGER.error(f"Mismatch between selected format media type ({selected_media_type}) and session media type ({session_data.get('media_type')}) for user {user_id}")
+             await edit_status_message(client, session_data, "خطأ داخلي: عدم تطابق نوع الوسائط.", None)
+             await cleanup_session(user_id)
+             return
+
+        session_data['format_selector'] = format_selector
+        LOGGER.info(f"User {user_id} selected format. Selector: '{format_selector}'. Starting download...")
+
+        # Update status message before starting download
+        await edit_status_message(client, session_data, f"{session_data['base_caption']}\n\n🚀 جارٍ التحضير للتحميل...", None)
+
+        # --- Download ---
+        # Run blocking download in a separate thread
+        downloaded_files, error_msg = await asyncio.to_thread(
+            do_youtube_download,
+            session_data['url'],
+            format_selector,
+            selected_media_type,
+            session_data,
+            message # Pass the message object for the hook wrapper
+        )
+
+        # Handle download errors
+        if error_msg:
+            LOGGER.error(f"Download failed for user {user_id}: {error_msg}")
+            await edit_status_message(client, session_data, f"❌ فشل التحميل:\n`{error_msg}`", None)
+            await cleanup_session(user_id)
+            return
+        if not downloaded_files:
+            LOGGER.error(f"Download returned no files and no error for user {user_id}.")
+            await edit_status_message(client, session_data, "❌ فشل التحميل ولم يتم العثور على ملفات.", None)
+            await cleanup_session(user_id)
+            return
+
+        # --- Upload ---
+        LOGGER.info(f"Download complete for user {user_id}. Found {len(downloaded_files)} file(s). Starting upload...")
+        session_data['base_caption'] = f"✅ {session_data.get('title', 'اكتمل التحميل')}" # Update base caption for upload phase
+
+        num_files = len(downloaded_files)
+        upload_success_count = 0
+        upload_errors = []
+
+        for i, file_path in enumerate(downloaded_files):
+            success = await upload_file_to_telegram(
+                client, session_data, message, file_path, i + 1, num_files
+            )
+            if success:
+                upload_success_count += 1
+            else:
+                 upload_errors.append(os.path.basename(file_path)) # Record name of failed file
+            # Small delay between uploads in playlist
+            if i < num_files - 1: await asyncio.sleep(1)
+
+        # --- Final Status ---
+        final_text = ""
+        if upload_success_count == num_files:
+            final_text = f"✅ تم رفع جميع الملفات ({num_files}) بنجاح!"
+            LOGGER.info(f"All files uploaded successfully for user {user_id}.")
+        elif upload_success_count > 0:
+            final_text = f"⚠️ اكتملت العملية مع {num_files - upload_success_count} أخطاء. تم رفع {upload_success_count} ملف بنجاح.\nالملفات التي فشلت: {', '.join(upload_errors)}"
+            LOGGER.warning(f"Upload finished with errors for user {user_id}. Success: {upload_success_count}/{num_files}")
+        else:
+            final_text = f"❌ فشل رفع جميع الملفات ({num_files})."
+            LOGGER.error(f"All uploads failed for user {user_id}.")
+
+        # Try editing status, fallback to sending new message
+        if not await edit_status_message(client, session_data, final_text, None):
+             try:
+                 await client.send_message(session_data['chat_id'], final_text, reply_to_message_id=session_data['original_message_id'])
+             except Exception as send_err:
+                  LOGGER.error(f"Failed to send final status message for user {user_id}: {send_err}")
+
+        # Delete status message after a delay (optional)
+        # await asyncio.sleep(15)
+        # try: await message.delete()
+        # except: pass
+
+        # Clean up the session
+        await cleanup_session(user_id)
+
+
+# --- 6. Bot Execution ---
+
+if __name__ == "__main__":
+    LOGGER.info("Starting URL Uploader Bot...")
+    try:
+        # Add any pre-run checks if needed
+        app.run()
+        # Code here runs after bot stops gracefully
+        LOGGER.info("Bot stopped gracefully.")
+    except Exception as e:
+        LOGGER.critical(f"Bot stopped due to a critical error: {e}", exc_info=True)
     finally:
-        print("INFO: Bot stopped.")
+        LOGGER.info("Performing final cleanup...")
+        # Clean download folder on exit (optional, be careful)
+        # for f in os.listdir(DOWNLOAD_FOLDER):
+        #     try: os.remove(os.path.join(DOWNLOAD_FOLDER, f))
+        #     except OSError: pass
+        print("تم إيقاف البوت.")
