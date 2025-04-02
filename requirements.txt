@@ -11,3 +11,4 @@ motor
 pymongo
 #pyrogram
 yt-dlp
+ffmpeg
