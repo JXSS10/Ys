@@ -12,3 +12,4 @@ pymongo
 #pyrogram
 yt-dlp
 ffmpeg
+python-ffmpeg
